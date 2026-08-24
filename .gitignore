@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# Environment variables
+.env
+.env.*
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Node
+node_modules/
+npm-debug.log*
+
+# Build files
+dist/
+build/
+
+# Logs
+*.log
+
+# Test/cache
+.pytest_cache/
+.mypy_cache/
+
+# Local data
+data/*.json
+data/*.csv
+
+# Kafka / local generated data
+*.tmp
