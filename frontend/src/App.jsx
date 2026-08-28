@@ -1,28 +1,19 @@
-import { useState } from "react";
+import "./index.css";
 
 function App() {
-  const [messages, setMessages] = useState(0);
-
-  const handleSimulateMessage = () => {
-    setMessages(messages + 1);
-  };
-
   return (
-    <div className="app">
-      <h1>StreamForge</h1>
+    <div className="dashboard">
 
-      <p className="subtitle">
-        Real-Time Kafka Streaming Dashboard
-      </p>
+      <header className="dashboard-header">
+        <h1>Real-Time Kafka Streaming Dashboard</h1>
+        <p className="status">● System Online</p>
+      </header>
 
-      <div className="status">
-        <h3>System Online</h3>
-      </div>
+      <section className="stats">
 
-      <div className="stats">
         <div className="stat-card">
           <h3>Messages</h3>
-          <p>{messages}</p>
+          <p>0</p>
         </div>
 
         <div className="stat-card">
@@ -35,48 +26,24 @@ function App() {
           <p>1</p>
         </div>
 
-        <div className="stat-card">
-          <h3>Status</h3>
-          <p>Running</p>
-        </div>
-      </div>
+      </section>
 
-      <div className="card">
+      <section className="topology-section">
         <h2>Kafka Stream Topology</h2>
 
-        <div className="topology">
-          <div className="node">
-            <h3>Producer</h3>
-            <p>Message Source</p>
-          </div>
-
-          <span>→</span>
-
-          <div className="node">
-            <h3>Kafka</h3>
-            <p>Stream Processing</p>
-          </div>
-
-          <span>→</span>
-
-          <div className="node">
-            <h3>Consumer</h3>
-            <p>Message Receiver</p>
-          </div>
+        <div className="topology-container">
+          {/* Your React Flow component goes here */}
         </div>
-      </div>
+      </section>
 
-      <div className="card">
+      <section className="activity-section">
         <h2>Stream Activity</h2>
 
-        <button onClick={handleSimulateMessage}>
-          Simulate Message
-        </button>
+        <button>Simulate Message</button>
 
-        <p className="activity">
-          Messages received: {messages}
-        </p>
-      </div>
+        <p>Messages received: 0</p>
+      </section>
+
     </div>
   );
 }
