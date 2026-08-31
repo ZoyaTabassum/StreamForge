@@ -1,54 +1,200 @@
+* {
+  box-sizing: border-box;
+}
+
 body {
   margin: 0;
   font-family: Arial, sans-serif;
-  background: #111827;
+  background: #020617;
   color: white;
 }
 
 .app {
+  min-height: 100vh;
   padding: 30px;
-  text-align: center;
 }
 
+h1 {
+  margin-bottom: 10px;
+}
+
+h2 {
+  margin-top: 30px;
+}
+
+
+/* =========================
+   SYSTEM STATUS
+========================= */
+
 .status {
-  color: #22c55e;
-  margin: 15px;
+  display: inline-block;
+  padding: 8px 15px;
+  margin-bottom: 25px;
+
+  background: #064e3b;
+  color: #6ee7b7;
+
+  border-radius: 20px;
   font-weight: bold;
 }
+
+
+/* =========================
+   STATISTICS
+========================= */
 
 .stats {
   display: flex;
   gap: 20px;
-  justify-content: center;
-  margin: 30px 0;
+  margin-bottom: 30px;
 }
 
 .card {
-  background: #2563eb;
+  background: #111827;
+
   padding: 20px;
+
   border-radius: 12px;
+
   width: 180px;
+
+  border: 1px solid #374151;
+}
+
+.card h3 {
+  margin: 0 0 10px;
 }
 
 .card p {
-  font-size: 30px;
-  margin: 10px;
+  font-size: 28px;
+  font-weight: bold;
+  margin: 0;
 }
+
+
+/* =========================
+   REACT FLOW
+========================= */
 
 .flow-container {
-  height: 450px;
   width: 100%;
-  border: 2px solid #22d3ee;
-  border-radius: 12px;
-  margin: 20px 0 40px;
+  height: 650px;
+
+  background: #020617;
+
+  border: 1px solid #334155;
+
+  border-radius: 15px;
+
+  overflow: hidden;
 }
 
-button {
-  padding: 12px 25px;
-  border: none;
-  border-radius: 8px;
-  background: #06b6d4;
+
+/* =========================
+   WORKER NODE
+========================= */
+
+.worker-node {
+  position: relative;
+
+  width: 150px;
+
+  padding: 12px;
+
+  background: #020617;
+
+  border: 2px solid #facc15;
+
+  border-radius: 6px;
+
+  text-align: center;
+
   color: white;
-  font-size: 16px;
+
+  box-shadow: 0 0 8px rgba(250, 204, 21, 0.15);
+}
+
+.worker-title {
+  font-size: 14px;
+
+  font-weight: bold;
+
+  margin-bottom: 10px;
+}
+
+.worker-status {
+  display: flex;
+
+  align-items: center;
+
+  justify-content: center;
+
+  gap: 8px;
+
+  margin-bottom: 8px;
+
+  font-size: 13px;
+}
+
+.status-dot {
+  width: 12px;
+  height: 12px;
+
+  border-radius: 50%;
+
+  display: inline-block;
+}
+
+.running {
+  background: #34d399;
+}
+
+.stopped {
+  background: #f472b6;
+}
+
+.worker-load {
+  font-size: 13px;
+}
+
+
+/* =========================
+   WORKER HANDLES
+========================= */
+
+.worker-handle {
+  width: 7px;
+  height: 7px;
+
+  background: #94a3b8;
+
+  border: none;
+}
+
+
+/* =========================
+   BUTTON
+========================= */
+
+.simulate-button {
+  padding: 12px 25px;
+
+  border: none;
+
+  border-radius: 8px;
+
+  background: #06b6d4;
+
+  color: white;
+
+  font-size: 15px;
+
+  font-weight: bold;
+
   cursor: pointer;
+}
+
+.simulate-button:hover {
+  opacity: 0.9;
 }

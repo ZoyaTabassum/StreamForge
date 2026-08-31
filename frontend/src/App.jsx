@@ -1,4 +1,5 @@
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
+
 import {
   ReactFlow,
   Background,
@@ -15,44 +16,102 @@ import "./index.css";
 const initialNodes = [
   {
     id: "kafka",
-    position: { x: 50, y: 150 },
-    data: { label: "Kafka\n🟢 Running" },
+    position: { x: 250, y: 50 },
+    data: { label: "Kafka" },
     style: {
       background: "#2563eb",
       color: "white",
-      padding: "15px",
-      borderRadius: "10px",
-      width: 150,
+      padding: "12px",
+      borderRadius: "8px",
+      width: 120,
       textAlign: "center",
       fontWeight: "bold",
     },
   },
   {
     id: "processor",
-    position: { x: 300, y: 150 },
-    data: { label: "Processor\n🟢 Running" },
+    position: { x: 250, y: 150 },
+    data: { label: "Processor" },
     style: {
       background: "#7c3aed",
       color: "white",
-      padding: "15px",
-      borderRadius: "10px",
-      width: 150,
+      padding: "12px",
+      borderRadius: "8px",
+      width: 120,
       textAlign: "center",
       fontWeight: "bold",
     },
   },
   {
-    id: "worker",
-    position: { x: 550, y: 150 },
-    data: { label: "Worker\n🟢 Running" },
+    id: "worker1",
+    position: { x: 220, y: 270 },
+    data: {
+      label: (
+        <div>
+          <strong>Worker 1</strong>
+          <br />
+          🟢 Running
+          <br />
+          Load: 42%
+        </div>
+      ),
+    },
     style: {
-      background: "#059669",
+      background: "#111827",
       color: "white",
-      padding: "15px",
-      borderRadius: "10px",
-      width: 150,
+      border: "2px solid #facc15",
+      padding: "12px",
+      borderRadius: "8px",
+      width: 140,
       textAlign: "center",
-      fontWeight: "bold",
+    },
+  },
+  {
+    id: "worker2",
+    position: { x: 220, y: 390 },
+    data: {
+      label: (
+        <div>
+          <strong>Worker 2</strong>
+          <br />
+          🟢 Running
+          <br />
+          Load: 67%
+        </div>
+      ),
+    },
+    style: {
+      background: "#111827",
+      color: "white",
+      border: "2px solid #facc15",
+      padding: "12px",
+      borderRadius: "8px",
+      width: 140,
+      textAlign: "center",
+    },
+  },
+  {
+    id: "worker3",
+    position: { x: 220, y: 510 },
+    data: {
+      label: (
+        <div>
+          <strong>Worker 3</strong>
+          <br />
+          🔴 Stopped
+          <br />
+          Load: 0%
+        </div>
+      ),
+    },
+    style: {
+      background: "#111827",
+      color: "white",
+      border: "2px solid #facc15",
+      padding: "12px",
+      borderRadius: "8px",
+      width: 140,
+      textAlign: "center",
     },
   },
 ];
@@ -65,9 +124,21 @@ const initialEdges = [
     animated: true,
   },
   {
-    id: "processor-worker",
+    id: "processor-worker1",
     source: "processor",
-    target: "worker",
+    target: "worker1",
+    animated: true,
+  },
+  {
+    id: "processor-worker2",
+    source: "processor",
+    target: "worker2",
+    animated: true,
+  },
+  {
+    id: "processor-worker3",
+    source: "processor",
+    target: "worker3",
     animated: true,
   },
 ];
@@ -79,11 +150,17 @@ function App() {
   const [edges, setEdges, onEdgesChange] =
     useEdgesState(initialEdges);
 
+  const [messageCount, setMessageCount] = useState(0);
+
   const onConnect = useCallback(
     (connection) =>
       setEdges((edges) => addEdge(connection, edges)),
     [setEdges]
   );
+
+  const simulateMessage = () => {
+    setMessageCount((count) => count + 1);
+  };
 
   return (
     <div className="app">
@@ -96,7 +173,7 @@ function App() {
       <div className="stats">
         <div className="card">
           <h3>Messages</h3>
-          <p>0</p>
+          <p>{messageCount}</p>
         </div>
 
         <div className="card">
@@ -106,7 +183,7 @@ function App() {
 
         <div className="card">
           <h3>Consumers</h3>
-          <p>1</p>
+          <p>3</p>
         </div>
       </div>
 
@@ -129,9 +206,13 @@ function App() {
 
       <h2>Stream Activity</h2>
 
-      <button>
+      <button onClick={simulateMessage}>
         Simulate Message
       </button>
+
+      <p>
+        Messages processed: {messageCount}
+      </p>
     </div>
   );
 }
