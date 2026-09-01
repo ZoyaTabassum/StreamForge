@@ -152,25 +152,44 @@ function App() {
 
   const [messageCount, setMessageCount] = useState(0);
 
+  // Day 6: Activity log
+  const [activity, setActivity] = useState([]);
+
   const onConnect = useCallback(
     (connection) =>
       setEdges((edges) => addEdge(connection, edges)),
     [setEdges]
   );
 
+  // Day 6: Simulate message
   const simulateMessage = () => {
+    const newMessage = {
+      id: Date.now(),
+      text: "Message processed successfully",
+      time: new Date().toLocaleTimeString(),
+    };
+
     setMessageCount((count) => count + 1);
+
+    setActivity((previousActivity) => [
+      newMessage,
+      ...previousActivity,
+    ]);
   };
 
   return (
     <div className="app">
+
+      {/* Dashboard Header */}
       <h1>Real-Time Kafka Streaming Dashboard</h1>
 
       <div className="status">
         🟢 System Online
       </div>
 
+      {/* Statistics */}
       <div className="stats">
+
         <div className="card">
           <h3>Messages</h3>
           <p>{messageCount}</p>
@@ -185,11 +204,14 @@ function App() {
           <h3>Consumers</h3>
           <p>3</p>
         </div>
+
       </div>
 
+      {/* Kafka Topology */}
       <h2>Kafka Stream Topology</h2>
 
       <div className="flow-container">
+
         <ReactFlow
           nodes={nodes}
           edges={edges}
@@ -202,17 +224,45 @@ function App() {
           <Controls />
           <MiniMap />
         </ReactFlow>
+
       </div>
 
+      {/* Stream Activity */}
       <h2>Stream Activity</h2>
 
-      <button onClick={simulateMessage}>
+      <button
+        className="simulate-button"
+        onClick={simulateMessage}
+      >
         Simulate Message
       </button>
 
       <p>
         Messages processed: {messageCount}
       </p>
+
+      {/* Day 6 Activity Log */}
+      <div className="activity-list">
+
+        {activity.length === 0 ? (
+          <p>No messages yet.</p>
+        ) : (
+          activity.map((item) => (
+            <div
+              className="activity-item"
+              key={item.id}
+            >
+              <span>🟢</span>
+
+              <span>{item.text}</span>
+
+              <small>{item.time}</small>
+            </div>
+          ))
+        )}
+
+      </div>
+
     </div>
   );
 }

@@ -198,3 +198,51 @@ h2 {
 .simulate-button:hover {
   opacity: 0.9;
 }
+
+## =========================
+ #  ACTIVITY LIST
+
+.activity-list {
+  max-width: 800px;
+  margin: 25px auto;
+  text-align: left;
+}
+
+.activity-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+
+  padding: 14px 18px;
+  margin-bottom: 10px;
+
+  background: #111827;
+
+  border: 1px solid #374151;
+
+  border-radius: 10px;
+}
+
+.activity-item small {
+  margin-left: auto;
+  color: #9ca3af;
+}
+
+.simulate-button {
+  padding: 12px 25px;
+
+  border: none;
+  border-radius: 8px;
+
+  background: #06b6d4;
+  color: white;
+
+  font-size: 15px;
+  font-weight: bold;
+
+  cursor: pointer;
+}
+
+.simulate-button:hover {
+  opacity: 0.9;
+}
