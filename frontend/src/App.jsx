@@ -13,7 +13,6 @@ import {
 import "@xyflow/react/dist/style.css";
 import "./index.css";
 
-
 // ===============================
 // KAFKA TOPOLOGY
 // ===============================
@@ -125,7 +124,6 @@ const initialNodes = [
   },
 ];
 
-
 const initialEdges = [
   {
     id: "kafka-processor",
@@ -155,7 +153,6 @@ const initialEdges = [
     animated: true,
   },
 ];
-
 
 // ===============================
 // WORKER DATA
@@ -187,7 +184,6 @@ const initialWorkers = [
   },
 ];
 
-
 // ===============================
 // APP
 // ===============================
@@ -205,10 +201,8 @@ function App() {
   const [activity, setActivity] =
     useState([]);
 
-  // Day 7 worker state
   const [workers, setWorkers] =
     useState(initialWorkers);
-
 
   // ===============================
   // CONNECT NODES
@@ -216,23 +210,28 @@ function App() {
 
   const onConnect = useCallback(
     (connection) =>
-      setEdges((edges) =>
-        addEdge(connection, edges)
+      setEdges((currentEdges) =>
+        addEdge(connection, currentEdges)
       ),
     [setEdges]
   );
-
 
   // ===============================
   // SIMULATE MESSAGE
   // ===============================
 
   const simulateMessage = () => {
+    const runningWorker = workers.find(
+      (worker) => worker.status === "Running"
+    );
+
+    if (!runningWorker) {
+      return;
+    }
+
     const newMessage = {
       id: Date.now(),
-
-      text: "Message processed successfully",
-
+      text: `${runningWorker.name} processed message successfully`,
       time: new Date().toLocaleTimeString(),
     };
 
@@ -247,21 +246,23 @@ function App() {
       ]
     );
 
-    // Update Worker 1 message count
     setWorkers(
       (previousWorkers) =>
         previousWorkers.map((worker) =>
-          worker.id === 1
+          worker.id === runningWorker.id
             ? {
                 ...worker,
                 messages:
                   worker.messages + 1,
+                load:
+                  worker.load < 95
+                    ? worker.load + 5
+                    : worker.load,
               }
             : worker
         )
     );
   };
-
 
   // ===============================
   // TOGGLE WORKER
@@ -295,13 +296,14 @@ function App() {
     );
   };
 
+  // ===============================
+  // UI
+  // ===============================
 
   return (
     <div className="app">
 
-      {/* =========================
-          HEADER
-      ========================= */}
+      {/* HEADER */}
 
       <h1>
         Real-Time Kafka Streaming Dashboard
@@ -311,10 +313,7 @@ function App() {
         🟢 System Online
       </div>
 
-
-      {/* =========================
-          STATISTICS
-      ========================= */}
+      {/* STATISTICS */}
 
       <div className="stats">
 
@@ -335,10 +334,7 @@ function App() {
 
       </div>
 
-
-      {/* =========================
-          TOPOLOGY
-      ========================= */}
+      {/* TOPOLOGY */}
 
       <h2>
         Kafka Stream Topology
@@ -349,34 +345,19 @@ function App() {
         <ReactFlow
           nodes={nodes}
           edges={edges}
-
-          onNodesChange={
-            onNodesChange
-          }
-
-          onEdgesChange={
-            onEdgesChange
-          }
-
+          onNodesChange={onNodesChange}
+          onEdgesChange={onEdgesChange}
           onConnect={onConnect}
-
           fitView
         >
-
           <Background />
-
           <Controls />
-
           <MiniMap />
-
         </ReactFlow>
 
       </div>
 
-
-      {/* =========================
-          DAY 7 WORKER MONITORING
-      ========================= */}
+      {/* WORKER MONITORING */}
 
       <h2>
         Worker Monitoring
@@ -411,7 +392,6 @@ function App() {
 
             </div>
 
-
             <div className="monitor-info">
 
               <p>
@@ -430,7 +410,6 @@ function App() {
 
               </div>
 
-
               <p>
                 <strong>
                   Messages:
@@ -439,7 +418,6 @@ function App() {
               </p>
 
             </div>
-
 
             <button
               className="worker-button"
@@ -458,10 +436,7 @@ function App() {
 
       </div>
 
-
-      {/* =========================
-          STREAM ACTIVITY
-      ========================= */}
+      {/* STREAM ACTIVITY */}
 
       <h2>
         Stream Activity
@@ -478,7 +453,6 @@ function App() {
         Messages processed:{" "}
         {messageCount}
       </p>
-
 
       {/* ACTIVITY LOG */}
 
@@ -520,6 +494,5 @@ function App() {
     </div>
   );
 }
-
 
 export default App;
