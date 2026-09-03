@@ -13,6 +13,11 @@ import {
 import "@xyflow/react/dist/style.css";
 import "./index.css";
 
+
+// ===============================
+// KAFKA TOPOLOGY
+// ===============================
+
 const initialNodes = [
   {
     id: "kafka",
@@ -28,6 +33,7 @@ const initialNodes = [
       fontWeight: "bold",
     },
   },
+
   {
     id: "processor",
     position: { x: 250, y: 150 },
@@ -42,6 +48,7 @@ const initialNodes = [
       fontWeight: "bold",
     },
   },
+
   {
     id: "worker1",
     position: { x: 220, y: 270 },
@@ -66,6 +73,7 @@ const initialNodes = [
       textAlign: "center",
     },
   },
+
   {
     id: "worker2",
     position: { x: 220, y: 390 },
@@ -90,6 +98,7 @@ const initialNodes = [
       textAlign: "center",
     },
   },
+
   {
     id: "worker3",
     position: { x: 220, y: 510 },
@@ -116,6 +125,7 @@ const initialNodes = [
   },
 ];
 
+
 const initialEdges = [
   {
     id: "kafka-processor",
@@ -123,18 +133,21 @@ const initialEdges = [
     target: "processor",
     animated: true,
   },
+
   {
     id: "processor-worker1",
     source: "processor",
     target: "worker1",
     animated: true,
   },
+
   {
     id: "processor-worker2",
     source: "processor",
     target: "worker2",
     animated: true,
   },
+
   {
     id: "processor-worker3",
     source: "processor",
@@ -143,51 +156,166 @@ const initialEdges = [
   },
 ];
 
+
+// ===============================
+// WORKER DATA
+// ===============================
+
+const initialWorkers = [
+  {
+    id: 1,
+    name: "Worker 1",
+    status: "Running",
+    load: 42,
+    messages: 12,
+  },
+
+  {
+    id: 2,
+    name: "Worker 2",
+    status: "Running",
+    load: 67,
+    messages: 18,
+  },
+
+  {
+    id: 3,
+    name: "Worker 3",
+    status: "Stopped",
+    load: 0,
+    messages: 0,
+  },
+];
+
+
+// ===============================
+// APP
+// ===============================
+
 function App() {
-  const [nodes, setNodes, onNodesChange] =
+  const [nodes, , onNodesChange] =
     useNodesState(initialNodes);
 
   const [edges, setEdges, onEdgesChange] =
     useEdgesState(initialEdges);
 
-  const [messageCount, setMessageCount] = useState(0);
+  const [messageCount, setMessageCount] =
+    useState(0);
 
-  // Day 6: Activity log
-  const [activity, setActivity] = useState([]);
+  const [activity, setActivity] =
+    useState([]);
+
+  // Day 7 worker state
+  const [workers, setWorkers] =
+    useState(initialWorkers);
+
+
+  // ===============================
+  // CONNECT NODES
+  // ===============================
 
   const onConnect = useCallback(
     (connection) =>
-      setEdges((edges) => addEdge(connection, edges)),
+      setEdges((edges) =>
+        addEdge(connection, edges)
+      ),
     [setEdges]
   );
 
-  // Day 6: Simulate message
+
+  // ===============================
+  // SIMULATE MESSAGE
+  // ===============================
+
   const simulateMessage = () => {
     const newMessage = {
       id: Date.now(),
+
       text: "Message processed successfully",
+
       time: new Date().toLocaleTimeString(),
     };
 
-    setMessageCount((count) => count + 1);
+    setMessageCount(
+      (count) => count + 1
+    );
 
-    setActivity((previousActivity) => [
-      newMessage,
-      ...previousActivity,
-    ]);
+    setActivity(
+      (previousActivity) => [
+        newMessage,
+        ...previousActivity,
+      ]
+    );
+
+    // Update Worker 1 message count
+    setWorkers(
+      (previousWorkers) =>
+        previousWorkers.map((worker) =>
+          worker.id === 1
+            ? {
+                ...worker,
+                messages:
+                  worker.messages + 1,
+              }
+            : worker
+        )
+    );
   };
+
+
+  // ===============================
+  // TOGGLE WORKER
+  // ===============================
+
+  const toggleWorker = (workerId) => {
+    setWorkers(
+      (previousWorkers) =>
+        previousWorkers.map((worker) => {
+          if (worker.id !== workerId) {
+            return worker;
+          }
+
+          const isRunning =
+            worker.status === "Running";
+
+          return {
+            ...worker,
+
+            status: isRunning
+              ? "Stopped"
+              : "Running",
+
+            load: isRunning
+              ? 0
+              : Math.floor(
+                  Math.random() * 50
+                ) + 30,
+          };
+        })
+    );
+  };
+
 
   return (
     <div className="app">
 
-      {/* Dashboard Header */}
-      <h1>Real-Time Kafka Streaming Dashboard</h1>
+      {/* =========================
+          HEADER
+      ========================= */}
+
+      <h1>
+        Real-Time Kafka Streaming Dashboard
+      </h1>
 
       <div className="status">
         🟢 System Online
       </div>
 
-      {/* Statistics */}
+
+      {/* =========================
+          STATISTICS
+      ========================= */}
+
       <div className="stats">
 
         <div className="card">
@@ -207,28 +335,137 @@ function App() {
 
       </div>
 
-      {/* Kafka Topology */}
-      <h2>Kafka Stream Topology</h2>
+
+      {/* =========================
+          TOPOLOGY
+      ========================= */}
+
+      <h2>
+        Kafka Stream Topology
+      </h2>
 
       <div className="flow-container">
 
         <ReactFlow
           nodes={nodes}
           edges={edges}
-          onNodesChange={onNodesChange}
-          onEdgesChange={onEdgesChange}
+
+          onNodesChange={
+            onNodesChange
+          }
+
+          onEdgesChange={
+            onEdgesChange
+          }
+
           onConnect={onConnect}
+
           fitView
         >
+
           <Background />
+
           <Controls />
+
           <MiniMap />
+
         </ReactFlow>
 
       </div>
 
-      {/* Stream Activity */}
-      <h2>Stream Activity</h2>
+
+      {/* =========================
+          DAY 7 WORKER MONITORING
+      ========================= */}
+
+      <h2>
+        Worker Monitoring
+      </h2>
+
+      <div className="worker-monitoring">
+
+        {workers.map((worker) => (
+
+          <div
+            className="monitor-card"
+            key={worker.id}
+          >
+
+            <div className="monitor-header">
+
+              <h3>
+                {worker.name}
+              </h3>
+
+              <span
+                className={
+                  worker.status === "Running"
+                    ? "monitor-status running"
+                    : "monitor-status stopped"
+                }
+              >
+                {worker.status === "Running"
+                  ? "🟢 Running"
+                  : "🔴 Stopped"}
+              </span>
+
+            </div>
+
+
+            <div className="monitor-info">
+
+              <p>
+                <strong>Load:</strong>{" "}
+                {worker.load}%
+              </p>
+
+              <div className="load-bar">
+
+                <div
+                  className="load-fill"
+                  style={{
+                    width: `${worker.load}%`,
+                  }}
+                ></div>
+
+              </div>
+
+
+              <p>
+                <strong>
+                  Messages:
+                </strong>{" "}
+                {worker.messages}
+              </p>
+
+            </div>
+
+
+            <button
+              className="worker-button"
+              onClick={() =>
+                toggleWorker(worker.id)
+              }
+            >
+              {worker.status === "Running"
+                ? "Stop Worker"
+                : "Start Worker"}
+            </button>
+
+          </div>
+
+        ))}
+
+      </div>
+
+
+      {/* =========================
+          STREAM ACTIVITY
+      ========================= */}
+
+      <h2>
+        Stream Activity
+      </h2>
 
       <button
         className="simulate-button"
@@ -238,27 +475,44 @@ function App() {
       </button>
 
       <p>
-        Messages processed: {messageCount}
+        Messages processed:{" "}
+        {messageCount}
       </p>
 
-      {/* Day 6 Activity Log */}
+
+      {/* ACTIVITY LOG */}
+
       <div className="activity-list">
 
         {activity.length === 0 ? (
-          <p>No messages yet.</p>
+
+          <p>
+            No messages yet.
+          </p>
+
         ) : (
+
           activity.map((item) => (
+
             <div
               className="activity-item"
               key={item.id}
             >
+
               <span>🟢</span>
 
-              <span>{item.text}</span>
+              <span>
+                {item.text}
+              </span>
 
-              <small>{item.time}</small>
+              <small>
+                {item.time}
+              </small>
+
             </div>
+
           ))
+
         )}
 
       </div>
@@ -266,5 +520,6 @@ function App() {
     </div>
   );
 }
+
 
 export default App;
