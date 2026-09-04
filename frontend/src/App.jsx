@@ -221,24 +221,41 @@ function App() {
   // ===============================
 
   const simulateMessage = () => {
-    const runningWorker = workers.find(
+    // Find all workers that are currently running
+    const runningWorkers = workers.filter(
       (worker) => worker.status === "Running"
     );
 
-    if (!runningWorker) {
+    // If there are no running workers,
+    // do not process the message
+    if (runningWorkers.length === 0) {
       return;
     }
 
+    // Select a random running worker
+    const randomIndex = Math.floor(
+      Math.random() * runningWorkers.length
+    );
+
+    const selectedWorker =
+      runningWorkers[randomIndex];
+
+    // Generate a random load increase
+    const loadIncrease =
+      Math.floor(Math.random() * 10) + 1;
+
     const newMessage = {
       id: Date.now(),
-      text: `${runningWorker.name} processed message successfully`,
+      text: `${selectedWorker.name} processed message successfully`,
       time: new Date().toLocaleTimeString(),
     };
 
+    // Increase total message count
     setMessageCount(
       (count) => count + 1
     );
 
+    // Add newest activity to the top
     setActivity(
       (previousActivity) => [
         newMessage,
@@ -246,21 +263,29 @@ function App() {
       ]
     );
 
+    // Update selected worker
     setWorkers(
       (previousWorkers) =>
-        previousWorkers.map((worker) =>
-          worker.id === runningWorker.id
-            ? {
-                ...worker,
-                messages:
-                  worker.messages + 1,
-                load:
-                  worker.load < 95
-                    ? worker.load + 5
-                    : worker.load,
-              }
-            : worker
-        )
+        previousWorkers.map((worker) => {
+          if (worker.id !== selectedWorker.id) {
+            return worker;
+          }
+
+          return {
+            ...worker,
+
+            // Increase processed messages
+            messages:
+              worker.messages + 1,
+
+            // Increase load randomly
+            // but never go above 100%
+            load: Math.min(
+              100,
+              worker.load + loadIncrease
+            ),
+          };
+        })
     );
   };
 
