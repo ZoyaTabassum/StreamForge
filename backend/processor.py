@@ -15,8 +15,9 @@ consumer = KafkaConsumer(
 print("========================================")
 print("   StreamForge Stream Processor")
 print("========================================")
-print("Pipeline: Consume -> Filter")
+print("Pipeline: Consume -> Filter -> Map")
 print("Condition: temperature > 0")
+print("Map: Celsius -> Fahrenheit")
 print("Listening to:", TOPIC)
 print()
 
@@ -33,12 +34,32 @@ try:
             f"temperature={temperature}°C"
         )
 
+        # Filter stage
         if temperature > 0:
+
             print(
                 f"  ✓ PASSED FILTER | "
                 f"temperature={temperature}°C"
             )
+
+            # Map stage
+            mapped_event = {
+                "sensor_id": event["sensor_id"],
+                "temperature": temperature,
+                "temperature_fahrenheit": round(
+                    (temperature * 9 / 5) + 32, 2
+                ),
+                "timestamp": event["timestamp"]
+            }
+
+            print(
+                f"  → MAPPED | "
+                f"{temperature}°C = "
+                f"{mapped_event['temperature_fahrenheit']}°F"
+            )
+
         else:
+
             print(
                 f"  ✗ FILTERED OUT | "
                 f"temperature={temperature}°C"
