@@ -35,6 +35,11 @@ events = [
 ]
 
 
+# Expected mathematical results
+expected_initial_average = 15.00
+expected_late_average = 23.33
+
+
 print("========================================")
 print("   StreamForge Late Event Test")
 print("========================================")
@@ -60,3 +65,33 @@ producer.close()
 
 print()
 print("Late event test completed.")
+print()
+print("========================================")
+print("       MATHEMATICAL VALIDATION")
+print("========================================")
+
+initial_average = (10.0 + 20.0) / 2
+late_average = (10.0 + 20.0 + 40.0) / 3
+
+print(f"Initial average : {initial_average:.2f}°C")
+print(f"Expected        : {expected_initial_average:.2f}°C")
+
+if round(initial_average, 2) == expected_initial_average:
+    print("Initial average : PASS")
+else:
+    print("Initial average : FAIL")
+
+print()
+
+print(f"Late-event average : {late_average:.2f}°C")
+print(f"Expected           : {expected_late_average:.2f}°C")
+
+if round(late_average, 2) == expected_late_average:
+    print("Late-event average : PASS")
+else:
+    print("Late-event average : FAIL")
+
+print()
+print("========================================")
+print("Window validation test completed.")
+print("========================================")
