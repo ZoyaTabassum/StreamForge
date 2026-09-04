@@ -363,3 +363,63 @@ h2 {
     grid-template-columns: 1fr;
   }
 }
+
+/* =========================
+   DAY 10 - AUTO STREAM
+========================= */
+
+.auto-stream-status {
+  display: inline-block;
+
+  padding: 8px 15px;
+
+  margin-bottom: 15px;
+
+  background: #374151;
+
+  color: #d1d5db;
+
+  border-radius: 20px;
+
+  font-size: 14px;
+
+  font-weight: bold;
+}
+
+.auto-stream-status.active {
+  background: #064e3b;
+
+  color: #6ee7b7;
+}
+
+.stream-controls {
+  display: flex;
+
+  gap: 12px;
+
+  flex-wrap: wrap;
+
+  align-items: center;
+}
+
+.auto-stream-button {
+  padding: 12px 25px;
+
+  border: none;
+
+  border-radius: 8px;
+
+  background: #7c3aed;
+
+  color: white;
+
+  font-size: 15px;
+
+  font-weight: bold;
+
+  cursor: pointer;
+}
+
+.auto-stream-button:hover {
+  opacity: 0.9;
+}

@@ -1,4 +1,9 @@
-import { useCallback, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 
 import {
   ReactFlow,
@@ -204,6 +209,18 @@ function App() {
   const [workers, setWorkers] =
     useState(initialWorkers);
 
+  // Day 10 - Auto Stream state
+  const [autoStream, setAutoStream] =
+    useState(false);
+
+  // Keep the latest workers available
+  // for the automatic stream.
+  const workersRef = useRef(workers);
+
+  useEffect(() => {
+    workersRef.current = workers;
+  }, [workers]);
+
   // ===============================
   // CONNECT NODES
   // ===============================
@@ -220,42 +237,56 @@ function App() {
   // SIMULATE MESSAGE
   // ===============================
 
-  const simulateMessage = () => {
-    // Find all workers that are currently running
-    const runningWorkers = workers.filter(
-      (worker) => worker.status === "Running"
-    );
+  const simulateMessage = useCallback(() => {
+    // Get the latest workers
+    const currentWorkers =
+      workersRef.current;
 
-    // If there are no running workers,
-    // do not process the message
+    // Find running workers only
+    const runningWorkers =
+      currentWorkers.filter(
+        (worker) =>
+          worker.status === "Running"
+      );
+
+    // No running workers
     if (runningWorkers.length === 0) {
       return;
     }
 
     // Select a random running worker
     const randomIndex = Math.floor(
-      Math.random() * runningWorkers.length
+      Math.random() *
+        runningWorkers.length
     );
 
     const selectedWorker =
       runningWorkers[randomIndex];
 
-    // Generate a random load increase
+    // Random load increase: 1% - 10%
     const loadIncrease =
-      Math.floor(Math.random() * 10) + 1;
+      Math.floor(
+        Math.random() * 10
+      ) + 1;
 
+    // Create activity message
     const newMessage = {
-      id: Date.now(),
+      id:
+        Date.now() +
+        Math.random(),
+
       text: `${selectedWorker.name} processed message successfully`,
-      time: new Date().toLocaleTimeString(),
+
+      time:
+        new Date().toLocaleTimeString(),
     };
 
-    // Increase total message count
+    // Increase total messages
     setMessageCount(
       (count) => count + 1
     );
 
-    // Add newest activity to the top
+    // Add activity to the top
     setActivity(
       (previousActivity) => [
         newMessage,
@@ -266,26 +297,70 @@ function App() {
     // Update selected worker
     setWorkers(
       (previousWorkers) =>
-        previousWorkers.map((worker) => {
-          if (worker.id !== selectedWorker.id) {
-            return worker;
+        previousWorkers.map(
+          (worker) => {
+            if (
+              worker.id !==
+              selectedWorker.id
+            ) {
+              return worker;
+            }
+
+            return {
+              ...worker,
+
+              // Increase messages
+              messages:
+                worker.messages + 1,
+
+              // Increase load
+              // Maximum = 100%
+              load: Math.min(
+                100,
+                worker.load +
+                  loadIncrease
+              ),
+            };
           }
+        )
+    );
+  }, []);
 
-          return {
-            ...worker,
+  // ===============================
+  // DAY 10 - AUTO STREAM
+  // ===============================
 
-            // Increase processed messages
-            messages:
-              worker.messages + 1,
+  useEffect(() => {
+    // Do nothing when Auto Stream
+    // is turned off.
+    if (!autoStream) {
+      return;
+    }
 
-            // Increase load randomly
-            // but never go above 100%
-            load: Math.min(
-              100,
-              worker.load + loadIncrease
-            ),
-          };
-        })
+    // Generate a message every 1 second.
+    const intervalId =
+      setInterval(() => {
+        simulateMessage();
+      }, 1000);
+
+    // Clean up the interval when
+    // Auto Stream is stopped.
+    return () => {
+      clearInterval(intervalId);
+    };
+  }, [
+    autoStream,
+    simulateMessage,
+  ]);
+
+  // ===============================
+  // TOGGLE AUTO STREAM
+  // ===============================
+
+  const toggleAutoStream = () => {
+    setAutoStream(
+      (currentStatus) =>
+        !currentStatus
     );
   };
 
@@ -296,28 +371,34 @@ function App() {
   const toggleWorker = (workerId) => {
     setWorkers(
       (previousWorkers) =>
-        previousWorkers.map((worker) => {
-          if (worker.id !== workerId) {
-            return worker;
+        previousWorkers.map(
+          (worker) => {
+            if (
+              worker.id !== workerId
+            ) {
+              return worker;
+            }
+
+            const isRunning =
+              worker.status ===
+              "Running";
+
+            return {
+              ...worker,
+
+              status: isRunning
+                ? "Stopped"
+                : "Running",
+
+              load: isRunning
+                ? 0
+                : Math.floor(
+                    Math.random() *
+                      50
+                  ) + 30,
+            };
           }
-
-          const isRunning =
-            worker.status === "Running";
-
-          return {
-            ...worker,
-
-            status: isRunning
-              ? "Stopped"
-              : "Running",
-
-            load: isRunning
-              ? 0
-              : Math.floor(
-                  Math.random() * 50
-                ) + 30,
-          };
-        })
+        )
     );
   };
 
@@ -370,8 +451,12 @@ function App() {
         <ReactFlow
           nodes={nodes}
           edges={edges}
-          onNodesChange={onNodesChange}
-          onEdgesChange={onEdgesChange}
+          onNodesChange={
+            onNodesChange
+          }
+          onEdgesChange={
+            onEdgesChange
+          }
           onConnect={onConnect}
           fitView
         >
@@ -405,12 +490,14 @@ function App() {
 
               <span
                 className={
-                  worker.status === "Running"
+                  worker.status ===
+                  "Running"
                     ? "monitor-status running"
                     : "monitor-status stopped"
                 }
               >
-                {worker.status === "Running"
+                {worker.status ===
+                "Running"
                   ? "🟢 Running"
                   : "🔴 Stopped"}
               </span>
@@ -420,7 +507,9 @@ function App() {
             <div className="monitor-info">
 
               <p>
-                <strong>Load:</strong>{" "}
+                <strong>
+                  Load:
+                </strong>{" "}
                 {worker.load}%
               </p>
 
@@ -447,10 +536,13 @@ function App() {
             <button
               className="worker-button"
               onClick={() =>
-                toggleWorker(worker.id)
+                toggleWorker(
+                  worker.id
+                )
               }
             >
-              {worker.status === "Running"
+              {worker.status ===
+              "Running"
                 ? "Stop Worker"
                 : "Start Worker"}
             </button>
@@ -467,12 +559,47 @@ function App() {
         Stream Activity
       </h2>
 
-      <button
-        className="simulate-button"
-        onClick={simulateMessage}
+      {/* DAY 10 AUTO STREAM STATUS */}
+
+      <div
+        className={
+          autoStream
+            ? "auto-stream-status active"
+            : "auto-stream-status"
+        }
       >
-        Simulate Message
-      </button>
+        {autoStream
+          ? "🟢 Auto Stream Running"
+          : "⚪ Auto Stream Stopped"}
+      </div>
+
+      <div className="stream-controls">
+
+        {/* MANUAL MESSAGE */}
+
+        <button
+          className="simulate-button"
+          onClick={
+            simulateMessage
+          }
+        >
+          Simulate Message
+        </button>
+
+        {/* AUTO STREAM */}
+
+        <button
+          className="auto-stream-button"
+          onClick={
+            toggleAutoStream
+          }
+        >
+          {autoStream
+            ? "⏹ Stop Auto Stream"
+            : "▶ Start Auto Stream"}
+        </button>
+
+      </div>
 
       <p>
         Messages processed:{" "}
@@ -498,7 +625,9 @@ function App() {
               key={item.id}
             >
 
-              <span>🟢</span>
+              <span>
+                🟢
+              </span>
 
               <span>
                 {item.text}
