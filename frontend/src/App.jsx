@@ -209,12 +209,15 @@ function App() {
   const [workers, setWorkers] =
     useState(initialWorkers);
 
-  // Day 10 - Auto Stream state
+  // ===============================
+  // DAY 10 - AUTO STREAM STATE
+  // ===============================
+
   const [autoStream, setAutoStream] =
     useState(false);
 
-  // Keep the latest workers available
-  // for the automatic stream.
+  // Keep latest worker state available
+  // for automatic message processing.
   const workersRef = useRef(workers);
 
   useEffect(() => {
@@ -238,23 +241,23 @@ function App() {
   // ===============================
 
   const simulateMessage = useCallback(() => {
-    // Get the latest workers
     const currentWorkers =
       workersRef.current;
 
-    // Find running workers only
+    // Only running workers can process
+    // messages.
     const runningWorkers =
       currentWorkers.filter(
         (worker) =>
           worker.status === "Running"
       );
 
-    // No running workers
+    // Stop if no workers are running.
     if (runningWorkers.length === 0) {
       return;
     }
 
-    // Select a random running worker
+    // Select a random running worker.
     const randomIndex = Math.floor(
       Math.random() *
         runningWorkers.length
@@ -263,13 +266,13 @@ function App() {
     const selectedWorker =
       runningWorkers[randomIndex];
 
-    // Random load increase: 1% - 10%
+    // Random load increase: 1% - 10%.
     const loadIncrease =
       Math.floor(
         Math.random() * 10
       ) + 1;
 
-    // Create activity message
+    // Create activity item.
     const newMessage = {
       id:
         Date.now() +
@@ -281,12 +284,12 @@ function App() {
         new Date().toLocaleTimeString(),
     };
 
-    // Increase total messages
+    // Increase total messages.
     setMessageCount(
       (count) => count + 1
     );
 
-    // Add activity to the top
+    // Add newest activity at the top.
     setActivity(
       (previousActivity) => [
         newMessage,
@@ -294,7 +297,7 @@ function App() {
       ]
     );
 
-    // Update selected worker
+    // Update the selected worker.
     setWorkers(
       (previousWorkers) =>
         previousWorkers.map(
@@ -309,12 +312,10 @@ function App() {
             return {
               ...worker,
 
-              // Increase messages
               messages:
                 worker.messages + 1,
 
-              // Increase load
-              // Maximum = 100%
+              // Maximum load = 100%.
               load: Math.min(
                 100,
                 worker.load +
@@ -331,19 +332,17 @@ function App() {
   // ===============================
 
   useEffect(() => {
-    // Do nothing when Auto Stream
-    // is turned off.
     if (!autoStream) {
       return;
     }
 
-    // Generate a message every 1 second.
+    // Generate a message every second.
     const intervalId =
       setInterval(() => {
         simulateMessage();
       }, 1000);
 
-    // Clean up the interval when
+    // Stop the interval when
     // Auto Stream is stopped.
     return () => {
       clearInterval(intervalId);
@@ -352,6 +351,54 @@ function App() {
     autoStream,
     simulateMessage,
   ]);
+
+  // ===============================
+  // DAY 11 - WORKER LOAD RECOVERY
+  // ===============================
+
+  useEffect(() => {
+    // Run the recovery process every
+    // 2 seconds.
+    const recoveryInterval =
+      setInterval(() => {
+        setWorkers(
+          (previousWorkers) =>
+            previousWorkers.map(
+              (worker) => {
+                // Stopped workers must
+                // always have 0% load.
+                if (
+                  worker.status !==
+                  "Running"
+                ) {
+                  return {
+                    ...worker,
+                    load: 0,
+                  };
+                }
+
+                // Running workers gradually
+                // recover their load.
+                return {
+                  ...worker,
+
+                  load: Math.max(
+                    0,
+                    worker.load - 2
+                  ),
+                };
+              }
+            )
+        );
+      }, 2000);
+
+    // Clean up the recovery interval.
+    return () => {
+      clearInterval(
+        recoveryInterval
+      );
+    };
+  }, []);
 
   // ===============================
   // TOGGLE AUTO STREAM
@@ -390,6 +437,11 @@ function App() {
                 ? "Stopped"
                 : "Running",
 
+              // Reset stopped worker
+              // to zero.
+              //
+              // Give a newly started
+              // worker an initial load.
               load: isRunning
                 ? 0
                 : Math.floor(
@@ -518,7 +570,8 @@ function App() {
                 <div
                   className="load-fill"
                   style={{
-                    width: `${worker.load}%`,
+                    width:
+                      `${worker.load}%`,
                   }}
                 ></div>
 
@@ -559,7 +612,7 @@ function App() {
         Stream Activity
       </h2>
 
-      {/* DAY 10 AUTO STREAM STATUS */}
+      {/* AUTO STREAM STATUS */}
 
       <div
         className={
