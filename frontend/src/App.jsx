@@ -95,10 +95,10 @@ const initialNodes = [
 ];
 
 const initialEdges = [
-  { id: "kafka-processor", source: "kafka", target: "processor", animated: true },
-  { id: "processor-worker1", source: "processor", target: "worker1", animated: true },
-  { id: "processor-worker2", source: "processor", target: "worker2", animated: true },
-  { id: "processor-worker3", source: "processor", target: "worker3", animated: true },
+  { id: "kafka-processor", source: "kafka", target: "processor", animated: true, data: { base: true } },
+  { id: "processor-worker1", source: "processor", target: "worker1", animated: true, data: { base: true } },
+  { id: "processor-worker2", source: "processor", target: "worker2", animated: true, data: { base: true } },
+  { id: "processor-worker3", source: "processor", target: "worker3", animated: true, data: { base: true } },
 ];
 
 // ===============================
@@ -140,6 +140,10 @@ function App() {
   const [workers, setWorkers] = useState(initialWorkers);
   const [autoStream, setAutoStream] = useState(false);
   const [activityFilter, setActivityFilter] = useState("all");
+
+  // DAY 13 - tracks which healthy worker is currently covering a down worker's
+  // partition, so we know who to draw the "reclaim" edge back from on recovery.
+  const [coverage, setCoverage] = useState({});
 
   // DAY 12 - per-worker up/down segments for the rebalance timeline.
   const [workerHistory, setWorkerHistory] = useState(() =>
@@ -203,6 +207,9 @@ function App() {
   useEffect(() => {
     setEdges((currentEdges) =>
       currentEdges.map((edge) => {
+        // DAY 13 - never touch temporary migration/reclaim edges here.
+        if (!edge.data?.base) return edge;
+
         const worker = workers.find((w) => `worker${w.id}` === edge.target);
         if (!worker) return edge;
 
@@ -321,13 +328,85 @@ function App() {
       })
     );
 
+    // DAY 13 - animate the actual partition reassignment on the graph.
+    let activityText;
+
+    if (isRunning) {
+      // Worker is going DOWN — find a healthy sibling to take its partition.
+      const target = workers.find((w) => w.id !== workerId && w.status === "Running");
+
+      if (target) {
+        setCoverage((prev) => ({ ...prev, [workerId]: target.id }));
+
+        const migrateEdgeId = `migrate-${workerId}-${target.id}-${changeTime}`;
+        setEdges((currentEdges) => [
+          ...currentEdges,
+          {
+            id: migrateEdgeId,
+            source: `worker${workerId}`,
+            target: `worker${target.id}`,
+            animated: true,
+            label: "partition moving",
+            labelBgPadding: [6, 3],
+            labelBgBorderRadius: 6,
+            labelStyle: { fill: "#fcd34d", fontSize: 10, fontWeight: 600 },
+            labelBgStyle: { fill: "#1a1526" },
+            style: { stroke: "#fbbf24", strokeWidth: 2, strokeDasharray: "4 4" },
+          },
+        ]);
+
+        setTimeout(() => {
+          setEdges((currentEdges) => currentEdges.filter((e) => e.id !== migrateEdgeId));
+        }, 3200);
+
+        activityText = `${worker.name} went offline — partition reassigned to ${target.name}`;
+      } else {
+        activityText = `${worker.name} went offline — no healthy worker available to take its partition`;
+      }
+    } else {
+      // Worker is coming back UP — reclaim the partition from whoever covered it.
+      const coveringId = coverage[workerId];
+      const coveringWorker = workers.find((w) => w.id === coveringId);
+
+      if (coveringWorker) {
+        const reclaimEdgeId = `reclaim-${coveringId}-${workerId}-${changeTime}`;
+        setEdges((currentEdges) => [
+          ...currentEdges,
+          {
+            id: reclaimEdgeId,
+            source: `worker${coveringId}`,
+            target: `worker${workerId}`,
+            animated: true,
+            label: "partition returning",
+            labelBgPadding: [6, 3],
+            labelBgBorderRadius: 6,
+            labelStyle: { fill: "#67e8f9", fontSize: 10, fontWeight: 600 },
+            labelBgStyle: { fill: "#1a1526" },
+            style: { stroke: "#22d3ee", strokeWidth: 2, strokeDasharray: "4 4" },
+          },
+        ]);
+
+        setTimeout(() => {
+          setEdges((currentEdges) => currentEdges.filter((e) => e.id !== reclaimEdgeId));
+        }, 3200);
+
+        setCoverage((prev) => {
+          const next = { ...prev };
+          delete next[workerId];
+          return next;
+        });
+
+        activityText = `${worker.name} back online — reclaimed partition from ${coveringWorker.name}`;
+      } else {
+        activityText = `${worker.name} back online — state recovered from changelog`;
+      }
+    }
+
     setActivity((previousActivity) => [
       {
         id: Date.now() + Math.random(),
         type: isRunning ? "stopped" : "recovered",
-        text: isRunning
-          ? `${worker.name} went offline — partition rebalancing to healthy workers`
-          : `${worker.name} back online — state recovered from changelog`,
+        text: activityText,
         time: new Date().toLocaleTimeString(),
       },
       ...previousActivity,
