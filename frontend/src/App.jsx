@@ -156,10 +156,18 @@ function App() {
   // Ticks once a second so the "in progress" timeline segment keeps growing live.
   const [now, setNow] = useState(Date.now());
 
+  // DAY 15 - Chaos Monkey toggle + tick counter to reschedule itself
+  const [chaosMonkey, setChaosMonkey] = useState(false);
+  const [chaosTick, setChaosTick] = useState(0);
+
   const workersRef = useRef(workers);
   useEffect(() => {
     workersRef.current = workers;
   }, [workers]);
+
+  // DAY 15 - ref so the chaos effect always calls the latest toggleWorker
+  // without needing to be re-subscribed every render.
+  const toggleWorkerRef = useRef();
 
   useEffect(() => {
     const tick = setInterval(() => setNow(Date.now()), 1000);
@@ -294,130 +302,192 @@ function App() {
   const toggleAutoStream = () => setAutoStream((current) => !current);
 
   // ===============================
-  // TOGGLE WORKER (+ event log)
+  // TOGGLE WORKER (+ event log) — DAY 15 upgraded version
   // ===============================
 
-  const toggleWorker = (workerId) => {
-    const worker = workers.find((w) => w.id === workerId);
-    if (!worker) return;
-    const isRunning = worker.status === "Running";
-    const newStatus = isRunning ? "Stopped" : "Running";
-    const changeTime = Date.now();
+  // DAY 15 - shared helper to spawn a temporary migrate/reclaim edge on the graph
+  const spawnPartitionEdge = useCallback(
+    (sourceId, targetId, label, stroke, labelColor) => {
+      const kind = label === "partition moving" ? "migrate" : "reclaim";
+      const edgeId = `${kind}-${sourceId}-${targetId}-${Date.now()}-${Math.random()
+        .toString(36)
+        .slice(2, 7)}`;
 
-    setWorkers((previousWorkers) =>
-      previousWorkers.map((w) =>
-        w.id !== workerId
-          ? w
-          : {
-              ...w,
-              status: newStatus,
-              load: isRunning ? 0 : Math.floor(Math.random() * 50) + 30,
-            }
-      )
-    );
+      setEdges((currentEdges) => [
+        ...currentEdges,
+        {
+          id: edgeId,
+          source: `worker${sourceId}`,
+          target: `worker${targetId}`,
+          animated: true,
+          label,
+          labelBgPadding: [6, 3],
+          labelBgBorderRadius: 6,
+          labelStyle: { fill: labelColor, fontSize: 10, fontWeight: 600 },
+          labelBgStyle: { fill: "#1a1526" },
+          style: { stroke, strokeWidth: 2, strokeDasharray: "4 4" },
+        },
+      ]);
 
-    // DAY 12 - close the current timeline segment and open a new one.
-    setWorkerHistory((previousHistory) =>
-      previousHistory.map((h) => {
-        if (h.id !== workerId) return h;
-        const segments = [...h.segments];
-        const last = segments[segments.length - 1];
-        segments[segments.length - 1] = { ...last, end: changeTime };
-        segments.push({ status: newStatus, start: changeTime, end: null });
-        return { ...h, segments };
-      })
-    );
+      setTimeout(() => {
+        setEdges((currentEdges) => currentEdges.filter((e) => e.id !== edgeId));
+      }, 3200);
+    },
+    [setEdges]
+  );
 
-    // DAY 13 - animate the actual partition reassignment on the graph.
-    let activityText;
+  const toggleWorker = useCallback(
+    (workerId) => {
+      const currentWorkers = workersRef.current;
+      const worker = currentWorkers.find((w) => w.id === workerId);
+      if (!worker) return;
 
-    if (isRunning) {
-      // Worker is going DOWN — find a healthy sibling to take its partition.
-      const target = workers.find((w) => w.id !== workerId && w.status === "Running");
+      const isRunning = worker.status === "Running";
+      const newStatus = isRunning ? "Stopped" : "Running";
+      const changeTime = Date.now();
 
-      if (target) {
-        setCoverage((prev) => ({ ...prev, [workerId]: target.id }));
+      setWorkers((previousWorkers) =>
+        previousWorkers.map((w) =>
+          w.id !== workerId
+            ? w
+            : {
+                ...w,
+                status: newStatus,
+                load: isRunning ? 0 : Math.floor(Math.random() * 50) + 30,
+              }
+        )
+      );
 
-        const migrateEdgeId = `migrate-${workerId}-${target.id}-${changeTime}`;
-        setEdges((currentEdges) => [
-          ...currentEdges,
-          {
-            id: migrateEdgeId,
-            source: `worker${workerId}`,
-            target: `worker${target.id}`,
-            animated: true,
-            label: "partition moving",
-            labelBgPadding: [6, 3],
-            labelBgBorderRadius: 6,
-            labelStyle: { fill: "#fcd34d", fontSize: 10, fontWeight: 600 },
-            labelBgStyle: { fill: "#1a1526" },
-            style: { stroke: "#fbbf24", strokeWidth: 2, strokeDasharray: "4 4" },
-          },
-        ]);
+      // DAY 12 - close the current timeline segment and open a new one.
+      setWorkerHistory((previousHistory) =>
+        previousHistory.map((h) => {
+          if (h.id !== workerId) return h;
+          const segments = [...h.segments];
+          const last = segments[segments.length - 1];
+          segments[segments.length - 1] = { ...last, end: changeTime };
+          segments.push({ status: newStatus, start: changeTime, end: null });
+          return { ...h, segments };
+        })
+      );
 
-        setTimeout(() => {
-          setEdges((currentEdges) => currentEdges.filter((e) => e.id !== migrateEdgeId));
-        }, 3200);
+      let activityText;
 
-        activityText = `${worker.name} went offline — partition reassigned to ${target.name}`;
-      } else {
-        activityText = `${worker.name} went offline — no healthy worker available to take its partition`;
-      }
-    } else {
-      // Worker is coming back UP — reclaim the partition from whoever covered it.
-      const coveringId = coverage[workerId];
-      const coveringWorker = workers.find((w) => w.id === coveringId);
+      if (isRunning) {
+        // Worker is going DOWN.
+        setCoverage((prevCoverage) => {
+          // DAY 15 - collect every partition this worker was responsible for:
+          // its own, plus anything it had inherited from an earlier outage.
+          const inherited = Object.entries(prevCoverage)
+            .filter(([, coveringId]) => coveringId === workerId)
+            .map(([downId]) => Number(downId));
+          const partitionsNeedingHome = [workerId, ...inherited];
 
-      if (coveringWorker) {
-        const reclaimEdgeId = `reclaim-${coveringId}-${workerId}-${changeTime}`;
-        setEdges((currentEdges) => [
-          ...currentEdges,
-          {
-            id: reclaimEdgeId,
-            source: `worker${coveringId}`,
-            target: `worker${workerId}`,
-            animated: true,
-            label: "partition returning",
-            labelBgPadding: [6, 3],
-            labelBgBorderRadius: 6,
-            labelStyle: { fill: "#67e8f9", fontSize: 10, fontWeight: 600 },
-            labelBgStyle: { fill: "#1a1526" },
-            style: { stroke: "#22d3ee", strokeWidth: 2, strokeDasharray: "4 4" },
-          },
-        ]);
+          // DAY 15 - pick the LEAST LOADED healthy worker, not just the first match.
+          const target = currentWorkers
+            .filter((w) => w.id !== workerId && w.status === "Running")
+            .sort((a, b) => a.load - b.load)[0];
 
-        setTimeout(() => {
-          setEdges((currentEdges) => currentEdges.filter((e) => e.id !== reclaimEdgeId));
-        }, 3200);
+          const nextCoverage = { ...prevCoverage };
 
-        setCoverage((prev) => {
-          const next = { ...prev };
-          delete next[workerId];
-          return next;
+          if (target) {
+            partitionsNeedingHome.forEach((pid) => {
+              nextCoverage[pid] = target.id;
+              spawnPartitionEdge(pid, target.id, "partition moving", "#fbbf24", "#fcd34d");
+            });
+
+            activityText =
+              inherited.length > 0
+                ? `${worker.name} went offline — its partition and ${inherited.length} inherited one(s) reassigned to ${target.name}`
+                : `${worker.name} went offline — partition reassigned to ${target.name}`;
+          } else {
+            // DAY 15 - total outage: nobody left to take the partition(s).
+            partitionsNeedingHome.forEach((pid) => {
+              delete nextCoverage[pid];
+            });
+            activityText = `${worker.name} went offline — NO healthy worker available, ${partitionsNeedingHome.length} partition(s) unassigned`;
+          }
+
+          return nextCoverage;
         });
-
-        activityText = `${worker.name} back online — reclaimed partition from ${coveringWorker.name}`;
       } else {
-        activityText = `${worker.name} back online — state recovered from changelog`;
-      }
-    }
+        // Worker is coming back UP — reclaim only its OWN partition.
+        setCoverage((prevCoverage) => {
+          const coveringId = prevCoverage[workerId];
+          const coveringWorker = currentWorkers.find((w) => w.id === coveringId);
 
-    setActivity((previousActivity) => [
-      {
-        id: Date.now() + Math.random(),
-        type: isRunning ? "stopped" : "recovered",
-        text: activityText,
-        time: new Date().toLocaleTimeString(),
-      },
-      ...previousActivity,
-    ].slice(0, 40));
-  };
+          if (coveringWorker) {
+            spawnPartitionEdge(coveringId, workerId, "partition returning", "#22d3ee", "#67e8f9");
+            activityText = `${worker.name} back online — reclaimed partition from ${coveringWorker.name}`;
+          } else {
+            activityText = `${worker.name} back online — state recovered from changelog`;
+          }
+
+          const nextCoverage = { ...prevCoverage };
+          delete nextCoverage[workerId];
+          return nextCoverage;
+        });
+      }
+
+      // NOTE: activityText is set synchronously inside the setCoverage updater
+      // above (updater runs immediately in React for this kind of state), but
+      // to be safe or if that path isn't taken, guard with a fallback.
+      setActivity((previousActivity) =>
+        [
+          {
+            id: Date.now() + Math.random(),
+            type: isRunning ? "stopped" : "recovered",
+            text: activityText || `${worker.name} status changed to ${newStatus}`,
+            time: new Date().toLocaleTimeString(),
+          },
+          ...previousActivity,
+        ].slice(0, 40)
+      );
+    },
+    [spawnPartitionEdge]
+  );
+
+  // DAY 15 - keep a ref pointing at the latest toggleWorker for Chaos Monkey
+  useEffect(() => {
+    toggleWorkerRef.current = toggleWorker;
+  }, [toggleWorker]);
+
+  // ===============================
+  // DAY 15 - CHAOS MONKEY
+  // ===============================
+
+  useEffect(() => {
+    if (!chaosMonkey) return;
+    const delay = 4000 + Math.random() * 4000; // 4-8s
+    const timeoutId = setTimeout(() => {
+      const currentWorkers = workersRef.current;
+      if (currentWorkers.length > 0) {
+        const victim = currentWorkers[Math.floor(Math.random() * currentWorkers.length)];
+        toggleWorkerRef.current?.(victim.id);
+      }
+      setChaosTick((t) => t + 1);
+    }, delay);
+    return () => clearTimeout(timeoutId);
+  }, [chaosMonkey, chaosTick]);
+
+  const toggleChaosMonkey = () => setChaosMonkey((c) => !c);
 
   // ===============================
   // ALERTS (derived, not stored state)
   // ===============================
 
+  // DAY 15 - true when there's nobody left to fail over to
+  const allWorkersDown = workers.every((w) => w.status !== "Running");
+
   const alerts = [
+    ...(allWorkersDown
+      ? [
+          {
+            id: "total-outage",
+            level: "critical",
+            text: "🔥 Total outage — every worker is down, no failover possible",
+          },
+        ]
+      : []),
     ...workers
       .filter((w) => w.status !== "Running")
       .map((w) => ({
@@ -527,6 +597,20 @@ function App() {
       </div>
 
       <h2 className="section-title">Worker Monitoring</h2>
+
+      {/* DAY 15 - Chaos Monkey controls */}
+      <div className="chaos-controls">
+        <button
+          className={chaosMonkey ? "chaos-button active" : "chaos-button"}
+          onClick={toggleChaosMonkey}
+        >
+          {chaosMonkey ? "🐒 Stop Chaos Monkey" : "🐒 Unleash Chaos Monkey"}
+        </button>
+        <div className={chaosMonkey ? "chaos-status active" : "chaos-status"}>
+          {chaosMonkey ? "Randomly crashing workers every 4–8s" : "Chaos Monkey idle"}
+        </div>
+      </div>
+
       <div className="worker-monitoring">
         {workers.map((worker) => (
           <div className={`monitor-card ${worker.status === "Running" ? "" : "is-down"}`} key={worker.id}>
@@ -585,7 +669,7 @@ function App() {
       </div>
 
       <div className="stream-controls">
-        <button className="simulate-button" onClick={simulateMessage}>
+        <button className="simulate-button" onClick={simulateMessage} disabled={allWorkersDown}>
           Simulate Message
         </button>
         <button className="auto-stream-button" onClick={toggleAutoStream}>
