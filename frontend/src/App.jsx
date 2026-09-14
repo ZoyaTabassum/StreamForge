@@ -106,24 +106,57 @@ const initialEdges = [
 // ===============================
 
 const initialWorkers = [
-  { id: 1, name: "Worker 1", status: "Running", load: 42, messages: 12 },
-  { id: 2, name: "Worker 2", status: "Running", load: 67, messages: 18 },
-  { id: 3, name: "Worker 3", status: "Stopped", load: 0, messages: 0 },
+  { id: 1, name: "Worker 1", status: "Running", load: 42, messages: 12, lag: 0, lagHistory: [0] },
+  { id: 2, name: "Worker 2", status: "Running", load: 67, messages: 18, lag: 0, lagHistory: [0] },
+  { id: 3, name: "Worker 3", status: "Stopped", load: 0, messages: 0, lag: 0, lagHistory: [0] },
 ];
 
 // Rolling window shown on the rebalance timeline (2 minutes).
 const TIMELINE_WINDOW_MS = 120000;
 
-function NodeLabel({ worker }) {
+// DAY 16 - simulated Prometheus-style consumer lag.
+// Runs on the same cadence a real scrape interval would use.
+const PROM_SCRAPE_INTERVAL_MS = 2000;
+const LAG_RISE_LOAD_THRESHOLD = 70;   // load% above which lag climbs
+const LAG_DRAIN_LOAD_THRESHOLD = 40;  // load% below which lag drains
+const BOTTLENECK_LAG_MS = 2500;       // lag threshold to flag the worst worker as THE bottleneck
+const LAG_HISTORY_LENGTH = 20;        // samples kept per worker for the sparkline
+
+function NodeLabel({ worker, isBottleneck }) {
   const isRunning = worker.status === "Running";
   return (
     <div>
-      <strong>{worker.name}</strong>
+      <strong>{isBottleneck ? "🔥 " : ""}{worker.name}</strong>
       <br />
       {isRunning ? "🟢 Running" : "🔴 Stopped"}
       <br />
       Load: {worker.load}%
+      <br />
+      Lag: {worker.lag}ms
     </div>
+  );
+}
+
+// DAY 16 - tiny inline sparkline, no chart library needed.
+function LagSparkline({ history, isBottleneck }) {
+  const max = Math.max(1, ...history);
+  const points = history
+    .map((value, index) => {
+      const x = (index / Math.max(1, history.length - 1)) * 100;
+      const y = 24 - (value / max) * 22;
+      return `${x},${y}`;
+    })
+    .join(" ");
+
+  return (
+    <svg viewBox="0 0 100 24" className="lag-sparkline" preserveAspectRatio="none">
+      <polyline
+        points={points}
+        fill="none"
+        stroke={isBottleneck ? "#fb7185" : "#67e8f9"}
+        strokeWidth="2"
+      />
+    </svg>
   );
 }
 
@@ -175,6 +208,57 @@ function App() {
   }, []);
 
   // ===============================
+  // DAY 16 - BOTTLENECK DETECTION
+  // ===============================
+  //
+  // Derived every render from workers[].lag — not its own state, so it's
+  // always in sync with whatever the last Prometheus-style scrape produced.
+  // Only the single worst RUNNING worker can be "the" bottleneck, and only
+  // once its lag actually crosses the threshold.
+
+  const runningWorkersForLag = workers.filter((w) => w.status === "Running");
+  const worstLagWorker =
+    runningWorkersForLag.length > 0
+      ? runningWorkersForLag.reduce((worst, w) => (w.lag > worst.lag ? w : worst), runningWorkersForLag[0])
+      : null;
+  const bottleneckWorkerId =
+    worstLagWorker && worstLagWorker.lag >= BOTTLENECK_LAG_MS ? worstLagWorker.id : null;
+
+  // DAY 16 - log an activity entry exactly once when the bottleneck starts
+  // or clears, instead of spamming one every render.
+  const prevBottleneckRef = useRef(null);
+  useEffect(() => {
+    if (bottleneckWorkerId === prevBottleneckRef.current) return;
+
+    const eventTime = new Date().toLocaleTimeString();
+
+    if (bottleneckWorkerId) {
+      const w = workers.find((worker) => worker.id === bottleneckWorkerId);
+      setActivity((previousActivity) => [
+        {
+          id: Date.now() + Math.random(),
+          type: "bottleneck",
+          text: `${w ? w.name : "A worker"} flagged as the bottleneck — consumer lag ${w ? w.lag : "?"}ms`,
+          time: eventTime,
+        },
+        ...previousActivity,
+      ].slice(0, 40));
+    } else if (prevBottleneckRef.current !== null) {
+      setActivity((previousActivity) => [
+        {
+          id: Date.now() + Math.random(),
+          type: "recovered",
+          text: "Bottleneck cleared — consumer lag back to normal",
+          time: eventTime,
+        },
+        ...previousActivity,
+      ].slice(0, 40));
+    }
+
+    prevBottleneckRef.current = bottleneckWorkerId;
+  }, [bottleneckWorkerId]);
+
+  // ===============================
   // REFLECT WORKER STATE ONTO GRAPH NODES
   // ===============================
 
@@ -186,6 +270,8 @@ function App() {
 
         const isRunning = worker.status === "Running";
         const isHot = isRunning && worker.load >= 85;
+        const isBottleneck = worker.id === bottleneckWorkerId;
+
         const borderColor = !isRunning ? "#ef4444" : isHot ? "#f59e0b" : "#22d3ee";
         const glow = !isRunning
           ? "none"
@@ -195,18 +281,19 @@ function App() {
 
         return {
           ...node,
-          data: { label: <NodeLabel worker={worker} /> },
+          data: { label: <NodeLabel worker={worker} isBottleneck={isBottleneck} /> },
           style: {
             ...node.style,
-            border: `2px solid ${borderColor}`,
+            border: isBottleneck ? "3px solid #fb7185" : `2px solid ${borderColor}`,
             opacity: isRunning ? 1 : 0.5,
-            boxShadow: glow,
+            boxShadow: isBottleneck ? "0 0 16px rgba(244,63,94,0.6)" : glow,
+            animation: isBottleneck ? "bottleneckPulse 1.1s ease-in-out infinite" : "none",
             transition: "all 0.4s ease",
           },
         };
       })
     );
-  }, [workers, setNodes]);
+  }, [workers, bottleneckWorkerId, setNodes]);
 
   // ===============================
   // REFLECT WORKER STATE ONTO EDGES
@@ -283,19 +370,53 @@ function App() {
   }, [autoStream, simulateMessage]);
 
   // ===============================
-  // WORKER LOAD RECOVERY
+  // WORKER LOAD RECOVERY + DAY 16 SIMULATED CONSUMER LAG
   // ===============================
+  //
+  // Same cadence a Prometheus scrape would use. Load drifts back down when
+  // idle, same as before. Lag is the new "how far behind is this consumer"
+  // signal: it climbs when load is high, drains when load is low — this is
+  // exactly the shape api-contract.md (Day 14) describes swapping for real
+  // Prometheus numbers once the backend exposes them.
 
   useEffect(() => {
     const recoveryInterval = setInterval(() => {
       setWorkers((previousWorkers) =>
-        previousWorkers.map((worker) =>
-          worker.status !== "Running"
-            ? { ...worker, load: 0 }
-            : { ...worker, load: Math.max(0, worker.load - 2) }
-        )
+        previousWorkers.map((worker) => {
+          if (worker.status !== "Running") {
+            // Not running — its partition is (hopefully) covered elsewhere,
+            // so its own backlog drains as the covering worker catches up.
+            const drainedLag = Math.max(0, worker.lag - 300);
+            return {
+              ...worker,
+              load: 0,
+              lag: drainedLag,
+              lagHistory: [...worker.lagHistory.slice(-(LAG_HISTORY_LENGTH - 1)), drainedLag],
+            };
+          }
+
+          const nextLoad = Math.max(0, worker.load - 2);
+
+          let lagDelta;
+          if (worker.load >= LAG_RISE_LOAD_THRESHOLD) {
+            lagDelta = 60 + Math.random() * 140; // struggling — lag climbs fast
+          } else if (worker.load <= LAG_DRAIN_LOAD_THRESHOLD) {
+            lagDelta = -(80 + Math.random() * 120); // idle — catching back up
+          } else {
+            lagDelta = (Math.random() - 0.5) * 40; // mid-load — mild drift
+          }
+
+          const nextLag = Math.max(0, Math.round(worker.lag + lagDelta));
+
+          return {
+            ...worker,
+            load: nextLoad,
+            lag: nextLag,
+            lagHistory: [...worker.lagHistory.slice(-(LAG_HISTORY_LENGTH - 1)), nextLag],
+          };
+        })
       );
-    }, 2000);
+    }, PROM_SCRAPE_INTERVAL_MS);
     return () => clearInterval(recoveryInterval);
   }, []);
 
@@ -488,6 +609,16 @@ function App() {
           },
         ]
       : []),
+    // DAY 16 - bottleneck alert, only while one is actually flagged.
+    ...(bottleneckWorkerId
+      ? [
+          {
+            id: `bottleneck-${bottleneckWorkerId}`,
+            level: "critical",
+            text: `${worstLagWorker.name} is the throughput bottleneck (lag ${worstLagWorker.lag}ms) — investigate before it backs up the pipeline`,
+          },
+        ]
+      : []),
     ...workers
       .filter((w) => w.status !== "Running")
       .map((w) => ({
@@ -507,13 +638,14 @@ function App() {
   const loadClass = (load) => (load >= 85 ? "hot" : load >= 60 ? "warm" : "cool");
 
   // ===============================
-  // DAY 12 - FILTERED ACTIVITY
+  // DAY 12 - FILTERED ACTIVITY (now includes bottleneck events)
   // ===============================
 
   const filteredActivity = activity.filter((item) => {
     if (activityFilter === "all") return true;
     if (activityFilter === "processed") return item.type === "processed";
-    if (activityFilter === "rebalance") return item.type === "stopped" || item.type === "recovered";
+    if (activityFilter === "rebalance")
+      return item.type === "stopped" || item.type === "recovered" || item.type === "bottleneck";
     return true;
   });
 
@@ -612,31 +744,45 @@ function App() {
       </div>
 
       <div className="worker-monitoring">
-        {workers.map((worker) => (
-          <div className={`monitor-card ${worker.status === "Running" ? "" : "is-down"}`} key={worker.id}>
-            <div className="monitor-header">
-              <h3>{worker.name}</h3>
-              <span className={worker.status === "Running" ? "monitor-status running" : "monitor-status stopped"}>
-                {worker.status === "Running" ? "🟢 Running" : "🔴 Stopped"}
-              </span>
-            </div>
-
-            <div className="monitor-info">
-              <p><strong>Load:</strong> {worker.load}%</p>
-              <div className="load-bar">
-                <div
-                  className={`load-fill ${loadClass(worker.load)}`}
-                  style={{ width: `${worker.load}%` }}
-                />
+        {workers.map((worker) => {
+          const isBottleneck = worker.id === bottleneckWorkerId;
+          return (
+            <div className={`monitor-card ${worker.status === "Running" ? "" : "is-down"}`} key={worker.id}>
+              <div className="monitor-header">
+                <h3>{worker.name}</h3>
+                <div className="monitor-badges">
+                  <span className={worker.status === "Running" ? "monitor-status running" : "monitor-status stopped"}>
+                    {worker.status === "Running" ? "🟢 Running" : "🔴 Stopped"}
+                  </span>
+                  {isBottleneck && <span className="bottleneck-badge">🔥 Bottleneck</span>}
+                </div>
               </div>
-              <p><strong>Messages:</strong> {worker.messages}</p>
-            </div>
 
-            <button className="worker-button" onClick={() => toggleWorker(worker.id)}>
-              {worker.status === "Running" ? "Stop Worker" : "Start Worker"}
-            </button>
-          </div>
-        ))}
+              <div className="monitor-info">
+                <p><strong>Load:</strong> {worker.load}%</p>
+                <div className="load-bar">
+                  <div
+                    className={`load-fill ${loadClass(worker.load)}`}
+                    style={{ width: `${worker.load}%` }}
+                  />
+                </div>
+
+                <div className="lag-row">
+                  <span className={`lag-value ${isBottleneck ? "hot" : ""}`}>
+                    <strong>Lag:</strong> {worker.lag}ms
+                  </span>
+                  <LagSparkline history={worker.lagHistory} isBottleneck={isBottleneck} />
+                </div>
+
+                <p><strong>Messages:</strong> {worker.messages}</p>
+              </div>
+
+              <button className="worker-button" onClick={() => toggleWorker(worker.id)}>
+                {worker.status === "Running" ? "Stop Worker" : "Start Worker"}
+              </button>
+            </div>
+          );
+        })}
       </div>
 
       <h2 className="section-title">Partition Rebalance Timeline</h2>
