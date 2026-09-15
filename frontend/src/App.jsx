@@ -115,12 +115,17 @@ const initialWorkers = [
 const TIMELINE_WINDOW_MS = 120000;
 
 // DAY 16 - simulated Prometheus-style consumer lag.
-// Runs on the same cadence a real scrape interval would use.
 const PROM_SCRAPE_INTERVAL_MS = 2000;
-const LAG_RISE_LOAD_THRESHOLD = 70;   // load% above which lag climbs
-const LAG_DRAIN_LOAD_THRESHOLD = 40;  // load% below which lag drains
-const BOTTLENECK_LAG_MS = 2500;       // lag threshold to flag the worst worker as THE bottleneck
-const LAG_HISTORY_LENGTH = 20;        // samples kept per worker for the sparkline
+const LAG_RISE_LOAD_THRESHOLD = 70;
+const LAG_DRAIN_LOAD_THRESHOLD = 40;
+const BOTTLENECK_LAG_MS = 2500;
+const LAG_HISTORY_LENGTH = 20;
+
+// DAY 17 - cluster-wide throughput sampling.
+// Each scrape records how many messages the whole cluster processed since
+// the previous scrape, converted to events/sec. This is the aggregate view
+// the Week 4 brief asks for ("expose metrics like processing lag, events/sec").
+const THROUGHPUT_HISTORY_LENGTH = 30;
 
 function NodeLabel({ worker, isBottleneck }) {
   const isRunning = worker.status === "Running";
@@ -149,13 +154,53 @@ function LagSparkline({ history, isBottleneck }) {
     .join(" ");
 
   return (
-    <svg viewBox="0 0 100 24" className="lag-sparkline" preserveAspectRatio="none">
+    <svg viewBox="0 0 100 24" className="lag-sparkline" preserveAspectRatio="none" aria-hidden="true">
       <polyline
         points={points}
         fill="none"
         stroke={isBottleneck ? "#fb7185" : "#67e8f9"}
         strokeWidth="2"
       />
+    </svg>
+  );
+}
+
+// DAY 17 - larger area chart for cluster throughput over time.
+function ThroughputChart({ history }) {
+  if (history.length < 2) {
+    return <p className="chart-empty">Collecting samples…</p>;
+  }
+
+  const max = Math.max(1, ...history.map((h) => h.eps));
+  const width = 100;
+  const height = 60;
+
+  const toPoint = (sample, index) => {
+    const x = (index / (history.length - 1)) * width;
+    const y = height - (sample.eps / max) * (height - 6);
+    return { x, y };
+  };
+
+  const points = history.map(toPoint);
+  const line = points.map((p) => `${p.x},${p.y}`).join(" ");
+  const area = `0,${height} ${line} ${width},${height}`;
+
+  return (
+    <svg
+      viewBox={`0 0 ${width} ${height}`}
+      className="throughput-chart"
+      preserveAspectRatio="none"
+      role="img"
+      aria-label={`Cluster throughput over the last ${history.length} samples, peak ${max.toFixed(1)} events per second`}
+    >
+      <defs>
+        <linearGradient id="tpGrad" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#22d3ee" stopOpacity="0.45" />
+          <stop offset="100%" stopColor="#22d3ee" stopOpacity="0" />
+        </linearGradient>
+      </defs>
+      <polygon points={area} fill="url(#tpGrad)" />
+      <polyline points={line} fill="none" stroke="#22d3ee" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
     </svg>
   );
 }
@@ -174,8 +219,7 @@ function App() {
   const [autoStream, setAutoStream] = useState(false);
   const [activityFilter, setActivityFilter] = useState("all");
 
-  // DAY 13 - tracks which healthy worker is currently covering a down worker's
-  // partition, so we know who to draw the "reclaim" edge back from on recovery.
+  // DAY 13 - which healthy worker currently covers a down worker's partition.
   const [coverage, setCoverage] = useState({});
 
   // DAY 12 - per-worker up/down segments for the rebalance timeline.
@@ -186,20 +230,33 @@ function App() {
     }))
   );
 
-  // Ticks once a second so the "in progress" timeline segment keeps growing live.
   const [now, setNow] = useState(Date.now());
 
   // DAY 15 - Chaos Monkey toggle + tick counter to reschedule itself
   const [chaosMonkey, setChaosMonkey] = useState(false);
   const [chaosTick, setChaosTick] = useState(0);
 
+  // DAY 17 - rolling cluster throughput samples.
+  const [throughputHistory, setThroughputHistory] = useState([]);
+
   const workersRef = useRef(workers);
   useEffect(() => {
     workersRef.current = workers;
   }, [workers]);
 
-  // DAY 15 - ref so the chaos effect always calls the latest toggleWorker
-  // without needing to be re-subscribed every render.
+  // DAY 17 - coverage must be readable synchronously inside toggleWorker so we
+  // can compute the activity message without depending on updater timing.
+  const coverageRef = useRef(coverage);
+  useEffect(() => {
+    coverageRef.current = coverage;
+  }, [coverage]);
+
+  // DAY 17 - lets the throughput sampler compute a delta without re-subscribing.
+  const messageCountRef = useRef(messageCount);
+  useEffect(() => {
+    messageCountRef.current = messageCount;
+  }, [messageCount]);
+
   const toggleWorkerRef = useRef();
 
   useEffect(() => {
@@ -210,11 +267,6 @@ function App() {
   // ===============================
   // DAY 16 - BOTTLENECK DETECTION
   // ===============================
-  //
-  // Derived every render from workers[].lag — not its own state, so it's
-  // always in sync with whatever the last Prometheus-style scrape produced.
-  // Only the single worst RUNNING worker can be "the" bottleneck, and only
-  // once its lag actually crosses the threshold.
 
   const runningWorkersForLag = workers.filter((w) => w.status === "Running");
   const worstLagWorker =
@@ -224,8 +276,6 @@ function App() {
   const bottleneckWorkerId =
     worstLagWorker && worstLagWorker.lag >= BOTTLENECK_LAG_MS ? worstLagWorker.id : null;
 
-  // DAY 16 - log an activity entry exactly once when the bottleneck starts
-  // or clears, instead of spamming one every render.
   const prevBottleneckRef = useRef(null);
   useEffect(() => {
     if (bottleneckWorkerId === prevBottleneckRef.current) return;
@@ -233,7 +283,7 @@ function App() {
     const eventTime = new Date().toLocaleTimeString();
 
     if (bottleneckWorkerId) {
-      const w = workers.find((worker) => worker.id === bottleneckWorkerId);
+      const w = workersRef.current.find((worker) => worker.id === bottleneckWorkerId);
       setActivity((previousActivity) => [
         {
           id: Date.now() + Math.random(),
@@ -302,7 +352,6 @@ function App() {
   useEffect(() => {
     setEdges((currentEdges) =>
       currentEdges.map((edge) => {
-        // DAY 13 - never touch temporary migration/reclaim edges here.
         if (!edge.data?.base) return edge;
 
         const worker = workers.find((w) => `worker${w.id}` === edge.target);
@@ -370,22 +419,26 @@ function App() {
   }, [autoStream, simulateMessage]);
 
   // ===============================
-  // WORKER LOAD RECOVERY + DAY 16 SIMULATED CONSUMER LAG
+  // WORKER LOAD RECOVERY + DAY 16 CONSUMER LAG + DAY 17 THROUGHPUT SAMPLE
   // ===============================
-  //
-  // Same cadence a Prometheus scrape would use. Load drifts back down when
-  // idle, same as before. Lag is the new "how far behind is this consumer"
-  // signal: it climbs when load is high, drains when load is low — this is
-  // exactly the shape api-contract.md (Day 14) describes swapping for real
-  // Prometheus numbers once the backend exposes them.
 
   useEffect(() => {
+    let lastSampledCount = messageCountRef.current;
+
     const recoveryInterval = setInterval(() => {
+      // DAY 17 - sample cluster throughput for this scrape window.
+      const currentCount = messageCountRef.current;
+      const delta = currentCount - lastSampledCount;
+      lastSampledCount = currentCount;
+      const eps = delta / (PROM_SCRAPE_INTERVAL_MS / 1000);
+
+      setThroughputHistory((previous) =>
+        [...previous, { t: Date.now(), eps }].slice(-THROUGHPUT_HISTORY_LENGTH)
+      );
+
       setWorkers((previousWorkers) =>
         previousWorkers.map((worker) => {
           if (worker.status !== "Running") {
-            // Not running — its partition is (hopefully) covered elsewhere,
-            // so its own backlog drains as the covering worker catches up.
             const drainedLag = Math.max(0, worker.lag - 300);
             return {
               ...worker,
@@ -399,11 +452,11 @@ function App() {
 
           let lagDelta;
           if (worker.load >= LAG_RISE_LOAD_THRESHOLD) {
-            lagDelta = 60 + Math.random() * 140; // struggling — lag climbs fast
+            lagDelta = 60 + Math.random() * 140;
           } else if (worker.load <= LAG_DRAIN_LOAD_THRESHOLD) {
-            lagDelta = -(80 + Math.random() * 120); // idle — catching back up
+            lagDelta = -(80 + Math.random() * 120);
           } else {
-            lagDelta = (Math.random() - 0.5) * 40; // mid-load — mild drift
+            lagDelta = (Math.random() - 0.5) * 40;
           }
 
           const nextLag = Math.max(0, Math.round(worker.lag + lagDelta));
@@ -417,16 +470,16 @@ function App() {
         })
       );
     }, PROM_SCRAPE_INTERVAL_MS);
+
     return () => clearInterval(recoveryInterval);
   }, []);
 
   const toggleAutoStream = () => setAutoStream((current) => !current);
 
   // ===============================
-  // TOGGLE WORKER (+ event log) — DAY 15 upgraded version
+  // DAY 15 - temporary migrate/reclaim edge on the graph
   // ===============================
 
-  // DAY 15 - shared helper to spawn a temporary migrate/reclaim edge on the graph
   const spawnPartitionEdge = useCallback(
     (sourceId, targetId, label, stroke, labelColor) => {
       const kind = label === "partition moving" ? "migrate" : "reclaim";
@@ -457,15 +510,81 @@ function App() {
     [setEdges]
   );
 
+  // ===============================
+  // TOGGLE WORKER — DAY 17 rewrite
+  // ===============================
+  //
+  // WHY THIS CHANGED: the Day 15/16 version assigned `activityText` INSIDE the
+  // setCoverage updater, then read it immediately afterwards. React does not
+  // guarantee an updater has run by then, and under StrictMode updaters run
+  // twice — so the log line sometimes fell through to the generic fallback and
+  // partition edges could be drawn twice.
+  //
+  // Now: everything is computed from refs FIRST (pure, synchronous), then the
+  // setters are called with already-decided values. Updaters stay side-effect
+  // free, which is what React actually expects.
+
   const toggleWorker = useCallback(
     (workerId) => {
       const currentWorkers = workersRef.current;
+      const currentCoverage = coverageRef.current;
       const worker = currentWorkers.find((w) => w.id === workerId);
       if (!worker) return;
 
       const isRunning = worker.status === "Running";
       const newStatus = isRunning ? "Stopped" : "Running";
       const changeTime = Date.now();
+
+      // ---- decide everything up front ----
+      let nextCoverage = { ...currentCoverage };
+      let activityText;
+      const edgesToSpawn = [];
+
+      if (isRunning) {
+        // Its own partition, plus anything it inherited from an earlier outage.
+        const inherited = Object.entries(currentCoverage)
+          .filter(([, coveringId]) => coveringId === workerId)
+          .map(([downId]) => Number(downId));
+        const partitionsNeedingHome = [workerId, ...inherited];
+
+        // Least-loaded healthy worker takes over.
+        const target = currentWorkers
+          .filter((w) => w.id !== workerId && w.status === "Running")
+          .sort((a, b) => a.load - b.load)[0];
+
+        if (target) {
+          partitionsNeedingHome.forEach((pid) => {
+            nextCoverage[pid] = target.id;
+            edgesToSpawn.push([pid, target.id, "partition moving", "#fbbf24", "#fcd34d"]);
+          });
+
+          activityText =
+            inherited.length > 0
+              ? `${worker.name} went offline — its partition and ${inherited.length} inherited one(s) reassigned to ${target.name}`
+              : `${worker.name} went offline — partition reassigned to ${target.name}`;
+        } else {
+          partitionsNeedingHome.forEach((pid) => {
+            delete nextCoverage[pid];
+          });
+          activityText = `${worker.name} went offline — NO healthy worker available, ${partitionsNeedingHome.length} partition(s) unassigned`;
+        }
+      } else {
+        const coveringId = currentCoverage[workerId];
+        const coveringWorker = currentWorkers.find((w) => w.id === coveringId);
+
+        if (coveringWorker) {
+          edgesToSpawn.push([coveringId, workerId, "partition returning", "#22d3ee", "#67e8f9"]);
+          activityText = `${worker.name} back online — reclaimed partition from ${coveringWorker.name}`;
+        } else {
+          activityText = `${worker.name} back online — state recovered from changelog`;
+        }
+
+        delete nextCoverage[workerId];
+      }
+
+      // ---- now commit, with no logic left inside any updater ----
+      coverageRef.current = nextCoverage;
+      setCoverage(nextCoverage);
 
       setWorkers((previousWorkers) =>
         previousWorkers.map((w) =>
@@ -479,7 +598,6 @@ function App() {
         )
       );
 
-      // DAY 12 - close the current timeline segment and open a new one.
       setWorkerHistory((previousHistory) =>
         previousHistory.map((h) => {
           if (h.id !== workerId) return h;
@@ -491,73 +609,14 @@ function App() {
         })
       );
 
-      let activityText;
+      edgesToSpawn.forEach((args) => spawnPartitionEdge(...args));
 
-      if (isRunning) {
-        // Worker is going DOWN.
-        setCoverage((prevCoverage) => {
-          // DAY 15 - collect every partition this worker was responsible for:
-          // its own, plus anything it had inherited from an earlier outage.
-          const inherited = Object.entries(prevCoverage)
-            .filter(([, coveringId]) => coveringId === workerId)
-            .map(([downId]) => Number(downId));
-          const partitionsNeedingHome = [workerId, ...inherited];
-
-          // DAY 15 - pick the LEAST LOADED healthy worker, not just the first match.
-          const target = currentWorkers
-            .filter((w) => w.id !== workerId && w.status === "Running")
-            .sort((a, b) => a.load - b.load)[0];
-
-          const nextCoverage = { ...prevCoverage };
-
-          if (target) {
-            partitionsNeedingHome.forEach((pid) => {
-              nextCoverage[pid] = target.id;
-              spawnPartitionEdge(pid, target.id, "partition moving", "#fbbf24", "#fcd34d");
-            });
-
-            activityText =
-              inherited.length > 0
-                ? `${worker.name} went offline — its partition and ${inherited.length} inherited one(s) reassigned to ${target.name}`
-                : `${worker.name} went offline — partition reassigned to ${target.name}`;
-          } else {
-            // DAY 15 - total outage: nobody left to take the partition(s).
-            partitionsNeedingHome.forEach((pid) => {
-              delete nextCoverage[pid];
-            });
-            activityText = `${worker.name} went offline — NO healthy worker available, ${partitionsNeedingHome.length} partition(s) unassigned`;
-          }
-
-          return nextCoverage;
-        });
-      } else {
-        // Worker is coming back UP — reclaim only its OWN partition.
-        setCoverage((prevCoverage) => {
-          const coveringId = prevCoverage[workerId];
-          const coveringWorker = currentWorkers.find((w) => w.id === coveringId);
-
-          if (coveringWorker) {
-            spawnPartitionEdge(coveringId, workerId, "partition returning", "#22d3ee", "#67e8f9");
-            activityText = `${worker.name} back online — reclaimed partition from ${coveringWorker.name}`;
-          } else {
-            activityText = `${worker.name} back online — state recovered from changelog`;
-          }
-
-          const nextCoverage = { ...prevCoverage };
-          delete nextCoverage[workerId];
-          return nextCoverage;
-        });
-      }
-
-      // NOTE: activityText is set synchronously inside the setCoverage updater
-      // above (updater runs immediately in React for this kind of state), but
-      // to be safe or if that path isn't taken, guard with a fallback.
       setActivity((previousActivity) =>
         [
           {
             id: Date.now() + Math.random(),
             type: isRunning ? "stopped" : "recovered",
-            text: activityText || `${worker.name} status changed to ${newStatus}`,
+            text: activityText,
             time: new Date().toLocaleTimeString(),
           },
           ...previousActivity,
@@ -567,7 +626,6 @@ function App() {
     [spawnPartitionEdge]
   );
 
-  // DAY 15 - keep a ref pointing at the latest toggleWorker for Chaos Monkey
   useEffect(() => {
     toggleWorkerRef.current = toggleWorker;
   }, [toggleWorker]);
@@ -593,10 +651,9 @@ function App() {
   const toggleChaosMonkey = () => setChaosMonkey((c) => !c);
 
   // ===============================
-  // ALERTS (derived, not stored state)
+  // ALERTS (derived)
   // ===============================
 
-  // DAY 15 - true when there's nobody left to fail over to
   const allWorkersDown = workers.every((w) => w.status !== "Running");
 
   const alerts = [
@@ -609,7 +666,6 @@ function App() {
           },
         ]
       : []),
-    // DAY 16 - bottleneck alert, only while one is actually flagged.
     ...(bottleneckWorkerId
       ? [
           {
@@ -638,7 +694,29 @@ function App() {
   const loadClass = (load) => (load >= 85 ? "hot" : load >= 60 ? "warm" : "cool");
 
   // ===============================
-  // DAY 12 - FILTERED ACTIVITY (now includes bottleneck events)
+  // DAY 17 - DERIVED CLUSTER METRICS
+  // ===============================
+
+  const currentEps = throughputHistory.length
+    ? throughputHistory[throughputHistory.length - 1].eps
+    : 0;
+
+  const peakEps = throughputHistory.length
+    ? Math.max(...throughputHistory.map((h) => h.eps))
+    : 0;
+
+  const avgEps = throughputHistory.length
+    ? throughputHistory.reduce((sum, h) => sum + h.eps, 0) / throughputHistory.length
+    : 0;
+
+  const healthyCount = workers.filter((w) => w.status === "Running").length;
+
+  const totalLag = workers
+    .filter((w) => w.status === "Running")
+    .reduce((sum, w) => sum + w.lag, 0);
+
+  // ===============================
+  // DAY 12 - FILTERED ACTIVITY
   // ===============================
 
   const filteredActivity = activity.filter((item) => {
@@ -692,17 +770,17 @@ function App() {
           <p>{messageCount}</p>
         </div>
         <div className="card">
-          <h3>Producers</h3>
-          <p>1</p>
+          <h3>Events / sec</h3>
+          <p>{currentEps.toFixed(1)}</p>
         </div>
         <div className="card">
-          <h3>Consumers</h3>
-          <p>{workers.length}</p>
+          <h3>Healthy Workers</h3>
+          <p>{healthyCount}/{workers.length}</p>
         </div>
       </div>
 
       {alerts.length > 0 && (
-        <div className="alert-stack">
+        <div className="alert-stack" role="status" aria-live="polite">
           {alerts.map((alert) => (
             <div key={alert.id} className={`alert-item ${alert.level}`}>
               <span className="alert-dot" />
@@ -711,6 +789,36 @@ function App() {
           ))}
         </div>
       )}
+
+      {/* DAY 17 - cluster throughput panel */}
+      <h2 className="section-title">Cluster Throughput</h2>
+      <div className="throughput-panel">
+        <div className="throughput-figures">
+          <div className="throughput-stat">
+            <span className="throughput-label">Current</span>
+            <span className="throughput-value">{currentEps.toFixed(1)} <small>ev/s</small></span>
+          </div>
+          <div className="throughput-stat">
+            <span className="throughput-label">Average</span>
+            <span className="throughput-value">{avgEps.toFixed(1)} <small>ev/s</small></span>
+          </div>
+          <div className="throughput-stat">
+            <span className="throughput-label">Peak</span>
+            <span className="throughput-value">{peakEps.toFixed(1)} <small>ev/s</small></span>
+          </div>
+          <div className="throughput-stat">
+            <span className="throughput-label">Total lag</span>
+            <span className={`throughput-value ${totalLag >= BOTTLENECK_LAG_MS ? "hot" : ""}`}>
+              {totalLag} <small>ms</small>
+            </span>
+          </div>
+        </div>
+        <ThroughputChart history={throughputHistory} />
+        <p className="throughput-note">
+          Sampled every {PROM_SCRAPE_INTERVAL_MS / 1000}s — same cadence as a Prometheus scrape.
+          Start Auto Stream to see it climb.
+        </p>
+      </div>
 
       <h2 className="section-title">Kafka Stream Topology</h2>
       <div className="flow-container">
@@ -730,11 +838,11 @@ function App() {
 
       <h2 className="section-title">Worker Monitoring</h2>
 
-      {/* DAY 15 - Chaos Monkey controls */}
       <div className="chaos-controls">
         <button
           className={chaosMonkey ? "chaos-button active" : "chaos-button"}
           onClick={toggleChaosMonkey}
+          aria-pressed={chaosMonkey}
         >
           {chaosMonkey ? "🐒 Stop Chaos Monkey" : "🐒 Unleash Chaos Monkey"}
         </button>
@@ -747,7 +855,10 @@ function App() {
         {workers.map((worker) => {
           const isBottleneck = worker.id === bottleneckWorkerId;
           return (
-            <div className={`monitor-card ${worker.status === "Running" ? "" : "is-down"}`} key={worker.id}>
+            <div
+              className={`monitor-card ${worker.status === "Running" ? "" : "is-down"} ${isBottleneck ? "is-bottleneck" : ""}`}
+              key={worker.id}
+            >
               <div className="monitor-header">
                 <h3>{worker.name}</h3>
                 <div className="monitor-badges">
@@ -760,7 +871,14 @@ function App() {
 
               <div className="monitor-info">
                 <p><strong>Load:</strong> {worker.load}%</p>
-                <div className="load-bar">
+                <div
+                  className="load-bar"
+                  role="progressbar"
+                  aria-valuenow={worker.load}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-label={`${worker.name} load`}
+                >
                   <div
                     className={`load-fill ${loadClass(worker.load)}`}
                     style={{ width: `${worker.load}%` }}
@@ -818,7 +936,7 @@ function App() {
         <button className="simulate-button" onClick={simulateMessage} disabled={allWorkersDown}>
           Simulate Message
         </button>
-        <button className="auto-stream-button" onClick={toggleAutoStream}>
+        <button className="auto-stream-button" onClick={toggleAutoStream} aria-pressed={autoStream}>
           {autoStream ? "⏹ Stop Auto Stream" : "▶ Start Auto Stream"}
         </button>
       </div>
@@ -829,18 +947,21 @@ function App() {
         <button
           className={activityFilter === "all" ? "filter-tab active" : "filter-tab"}
           onClick={() => setActivityFilter("all")}
+          aria-pressed={activityFilter === "all"}
         >
           All
         </button>
         <button
           className={activityFilter === "processed" ? "filter-tab active" : "filter-tab"}
           onClick={() => setActivityFilter("processed")}
+          aria-pressed={activityFilter === "processed"}
         >
           Messages
         </button>
         <button
           className={activityFilter === "rebalance" ? "filter-tab active" : "filter-tab"}
           onClick={() => setActivityFilter("rebalance")}
+          aria-pressed={activityFilter === "rebalance"}
         >
           Rebalance events
         </button>
