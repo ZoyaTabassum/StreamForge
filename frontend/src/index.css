@@ -51,6 +51,17 @@ body::after {
   margin: 0 auto;
 }
 
+/* ---------- Keyframes ---------- */
+
+@keyframes bottleneckPulse {
+  0%, 100% {
+    box-shadow: 0 0 12px rgba(244, 63, 94, 0.45);
+  }
+  50% {
+    box-shadow: 0 0 26px rgba(244, 63, 94, 0.85);
+  }
+}
+
 /* ---------- Header ---------- */
 
 .app-header {
@@ -93,7 +104,9 @@ body::after {
 .monitor-card,
 .flow-container,
 .activity-item,
-.alert-item {
+.alert-item,
+.timeline-panel,
+.throughput-panel {
   background: rgba(255, 255, 255, 0.035);
   border: 1px solid rgba(255, 255, 255, 0.08);
   backdrop-filter: blur(18px);
@@ -189,6 +202,73 @@ body::after {
   margin: 0 0 14px;
 }
 
+/* ---------- Day 17: Cluster throughput panel ---------- */
+
+.throughput-panel {
+  border-radius: 20px;
+  padding: 22px 24px;
+  margin-bottom: 34px;
+}
+
+.throughput-figures {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: 18px;
+  margin-bottom: 18px;
+}
+
+.throughput-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.throughput-label {
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: #9d97c9;
+  font-weight: 600;
+}
+
+.throughput-value {
+  font-size: 22px;
+  font-weight: 700;
+  font-family: "JetBrains Mono", monospace;
+  color: #eceafc;
+}
+
+.throughput-value small {
+  font-size: 11px;
+  font-weight: 500;
+  color: #9d97c9;
+}
+
+.throughput-value.hot {
+  color: #fda4af;
+}
+
+.throughput-chart {
+  width: 100%;
+  height: 90px;
+  display: block;
+}
+
+.chart-empty {
+  font-size: 12px;
+  color: #6b6693;
+  height: 90px;
+  display: flex;
+  align-items: center;
+  margin: 0;
+}
+
+.throughput-note {
+  font-size: 11.5px;
+  color: #6b6693;
+  margin: 12px 0 0;
+}
+
 /* ---------- Topology ---------- */
 
 .flow-container {
@@ -198,118 +278,13 @@ body::after {
   overflow: hidden;
 }
 
-/* ---------- Worker monitoring ---------- */
-
-.worker-monitoring {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 16px;
-  margin-bottom: 34px;
-}
-
-.monitor-card {
-  border-radius: 20px;
-  padding: 20px;
-  transition: transform 0.25s ease, border-color 0.3s ease, opacity 0.3s ease;
-}
-
-.monitor-card:hover {
-  transform: translateY(-3px);
-}
-
-.monitor-card.is-down {
-  opacity: 0.65;
-  border-color: rgba(251, 113, 133, 0.3);
-}
-
-.monitor-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 14px;
-}
-
-.monitor-header h3 {
-  margin: 0;
-  font-size: 15px;
-  font-weight: 700;
-}
-
-.monitor-status {
-  font-size: 10.5px;
-  font-weight: 700;
-  padding: 4px 10px;
-  border-radius: 999px;
-  letter-spacing: 0.02em;
-}
-
-.monitor-status.running {
-  background: rgba(110, 231, 183, 0.14);
-  color: #6ee7b7;
-}
-
-.monitor-status.stopped {
-  background: rgba(251, 113, 133, 0.14);
-  color: #fda4af;
-}
-
-.monitor-info p {
-  margin: 7px 0;
-  font-size: 13px;
-  color: #c3bfe0;
-}
-
-.load-bar {
-  height: 8px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.06);
-  overflow: hidden;
-  margin: 7px 0 12px;
-}
-
-.load-fill {
-  height: 100%;
-  border-radius: 999px;
-  transition: width 0.5s ease, background 0.5s ease;
-}
-
-.load-fill.cool {
-  background: linear-gradient(90deg, #7c3aed, #22d3ee);
-}
-
-.load-fill.warm {
-  background: linear-gradient(90deg, #f59e0b, #fbbf24);
-}
-
-.load-fill.hot {
-  background: linear-gradient(90deg, #f43f5e, #fb7185);
-}
-
-.worker-button {
-  width: 100%;
-  margin-top: 6px;
-  padding: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.04);
-  color: #eceafc;
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background 0.2s ease, border-color 0.2s ease;
-}
-
-.worker-button:hover {
-  background: rgba(124, 58, 237, 0.18);
-  border-color: rgba(124, 58, 237, 0.5);
-}
-
 /* ---------- Day 15: Chaos Monkey controls ---------- */
 
 .chaos-controls {
   display: flex;
   align-items: center;
   gap: 12px;
+  flex-wrap: wrap;
   margin-bottom: 20px;
 }
 
@@ -349,12 +324,171 @@ body::after {
   background: linear-gradient(120deg, #7c3aed, #ef4444);
 }
 
+/* ---------- Worker monitoring ---------- */
+
+.worker-monitoring {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+  margin-bottom: 34px;
+}
+
+.monitor-card {
+  border-radius: 20px;
+  padding: 20px;
+  transition: transform 0.25s ease, border-color 0.3s ease, opacity 0.3s ease;
+}
+
+.monitor-card:hover {
+  transform: translateY(-3px);
+}
+
+.monitor-card.is-down {
+  opacity: 0.65;
+  border-color: rgba(251, 113, 133, 0.3);
+}
+
+.monitor-card.is-bottleneck {
+  border-color: rgba(244, 63, 94, 0.5);
+}
+
+.monitor-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.monitor-header h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+/* ---------- Day 16: badges ---------- */
+
+.monitor-badges {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.monitor-status {
+  font-size: 10.5px;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 999px;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.monitor-status.running {
+  background: rgba(110, 231, 183, 0.14);
+  color: #6ee7b7;
+}
+
+.monitor-status.stopped {
+  background: rgba(251, 113, 133, 0.14);
+  color: #fda4af;
+}
+
+.bottleneck-badge {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 4px 9px;
+  border-radius: 999px;
+  background: rgba(244, 63, 94, 0.16);
+  color: #fda4af;
+  border: 1px solid rgba(244, 63, 94, 0.4);
+  white-space: nowrap;
+  animation: bottleneckPulse 1.4s ease-in-out infinite;
+}
+
+.monitor-info p {
+  margin: 7px 0;
+  font-size: 13px;
+  color: #c3bfe0;
+}
+
+.load-bar {
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  overflow: hidden;
+  margin: 7px 0 12px;
+}
+
+.load-fill {
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.5s ease, background 0.5s ease;
+}
+
+.load-fill.cool {
+  background: linear-gradient(90deg, #7c3aed, #22d3ee);
+}
+
+.load-fill.warm {
+  background: linear-gradient(90deg, #f59e0b, #fbbf24);
+}
+
+.load-fill.hot {
+  background: linear-gradient(90deg, #f43f5e, #fb7185);
+}
+
+/* ---------- Day 16: lag row + sparkline ---------- */
+
+.lag-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 8px 0 10px;
+}
+
+.lag-value {
+  font-size: 12.5px;
+  color: #c3bfe0;
+  white-space: nowrap;
+  font-family: "JetBrains Mono", monospace;
+}
+
+.lag-value.hot {
+  color: #fda4af;
+  font-weight: 700;
+}
+
+.lag-sparkline {
+  flex: 1;
+  height: 24px;
+  min-width: 60px;
+  overflow: visible;
+}
+
+.worker-button {
+  width: 100%;
+  margin-top: 6px;
+  padding: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.04);
+  color: #eceafc;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+.worker-button:hover {
+  background: rgba(124, 58, 237, 0.18);
+  border-color: rgba(124, 58, 237, 0.5);
+}
+
 /* ---------- Day 12: Rebalance timeline ---------- */
 
 .timeline-panel {
-  background: rgba(255, 255, 255, 0.035);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  backdrop-filter: blur(18px);
   border-radius: 20px;
   padding: 20px 22px;
   margin-bottom: 34px;
@@ -435,6 +569,7 @@ body::after {
 .activity-filters {
   display: flex;
   gap: 8px;
+  flex-wrap: wrap;
   margin-bottom: 14px;
 }
 
@@ -481,6 +616,7 @@ body::after {
 .stream-controls {
   display: flex;
   gap: 12px;
+  flex-wrap: wrap;
   margin-bottom: 14px;
 }
 
@@ -512,8 +648,6 @@ body::after {
   filter: brightness(1.08);
   transform: translateY(-2px);
 }
-
-/* ---------- Day 15: disabled state ---------- */
 
 .simulate-button:disabled {
   opacity: 0.4;
@@ -561,6 +695,7 @@ body::after {
 .activity-item.processed .activity-dot { background: #6ee7b7; color: #6ee7b7; }
 .activity-item.stopped .activity-dot { background: #fb7185; color: #fb7185; }
 .activity-item.recovered .activity-dot { background: #38bdf8; color: #38bdf8; }
+.activity-item.bottleneck .activity-dot { background: #fbbf24; color: #fbbf24; }
 
 .activity-text {
   flex: 1;
@@ -603,9 +738,35 @@ body::after {
     height: 380px;
   }
 
+  .throughput-figures {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .chaos-controls {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .chaos-button {
+    width: 100%;
+  }
+
   body::before,
   body::after {
     width: 380px;
     height: 380px;
+  }
+}
+
+/* ---------- Respect reduced-motion preferences ---------- */
+
+@media (prefers-reduced-motion: reduce) {
+  .bottleneck-badge,
+  .monitor-card,
+  .chaos-button,
+  .timeline-bar,
+  .load-fill {
+    animation: none !important;
+    transition: none !important;
   }
 }
