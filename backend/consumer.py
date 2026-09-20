@@ -1,36 +1,55 @@
-from kafka import KafkaConsumer
-import json
+from confluent_kafka import Consumer, KafkaException
 
-TOPIC = "sensor-events"
 
-consumer = KafkaConsumer(
-    TOPIC,
-    bootstrap_servers="localhost:9092",
-    group_id="streamforge-consumer-group",
-    auto_offset_reset="earliest",
-    enable_auto_commit=True,
-    value_deserializer=lambda value: json.loads(value.decode("utf-8"))
-)
+BROKERS = "localhost:9092"
+TOPIC = "truck-telemetry"
+GROUP_ID = "streamforge-consumer"
 
-print("StreamForge Kafka Consumer started.")
-print(f"Listening to topic: {TOPIC}")
-print("Waiting for events...\n")
 
-try:
-    for message in consumer:
-        event = message.value
+def main():
+    print("=" * 50)
+    print("StreamForge Kafka Consumer")
+    print("=" * 50)
+    print(f"Kafka: {BROKERS}")
+    print(f"Topic: {TOPIC}")
+    print("Waiting for messages...")
+    print("Press CTRL+C to stop")
+    print()
 
-        print(
-            f"Received | "
-            f"partition={message.partition} | "
-            f"offset={message.offset} | "
-            f"sensor={event['sensor_id']} | "
-            f"temperature={event['temperature']}°C | "
-            f"timestamp={event['timestamp']}"
-        )
+    consumer = Consumer({
+        "bootstrap.servers": BROKERS,
+        "group.id": GROUP_ID,
+        "auto.offset.reset": "earliest",
+    })
 
-except KeyboardInterrupt:
-    print("\nConsumer stopped.")
+    consumer.subscribe([TOPIC])
 
-finally:
-    consumer.close()
+    try:
+        while True:
+            msg = consumer.poll(1.0)
+
+            if msg is None:
+                continue
+
+            if msg.error():
+                print(f"Kafka error: {msg.error()}")
+                continue
+
+            value = msg.value().decode("utf-8")
+
+            print(
+                f"Received: {value} "
+                f"| partition={msg.partition()} "
+                f"| offset={msg.offset()}"
+            )
+
+    except KeyboardInterrupt:
+        print("\nStopping consumer...")
+
+    finally:
+        consumer.close()
+        print("Consumer stopped.")
+
+
+if __name__ == "__main__":
+    main()
