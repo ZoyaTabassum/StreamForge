@@ -262,6 +262,34 @@ body::after {
   border-color: rgba(251, 191, 36, 0.35);
 }
 
+.connection-badge.reconnecting {
+  color: #fb923c;
+  border-color: rgba(251, 146, 60, 0.4);
+  animation: pulseReconnect 1.4s ease-in-out infinite;
+}
+
+@keyframes pulseReconnect {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+
+.retry-button {
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(124, 58, 237, 0.4);
+  background: rgba(124, 58, 237, 0.15);
+  color: #d8c9ff;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.2s ease, transform 0.15s ease;
+}
+
+.retry-button:hover {
+  background: rgba(124, 58, 237, 0.3);
+  transform: translateY(-1px);
+}
+
 .connection-badge.disconnected,
 .connection-badge.error {
   color: #fda4af;

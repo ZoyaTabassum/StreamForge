@@ -124,6 +124,11 @@ const BOTTLENECK_LAG_THRESHOLD = 600; // ms — above this, a worker is "the bot
 const API_BASE = "http://localhost:8000";
 const WS_URL = "ws://localhost:8000/ws/stream";
 
+// DAY 19 - reconnect tuning
+const MAX_RECONNECT_ATTEMPTS = 5;
+const RECONNECT_BASE_DELAY_MS = 1000;
+const RECONNECT_MAX_DELAY_MS = 16000;
+
 function NodeLabel({ worker, isBottleneck }) {
   const isRunning = worker.status === "Running";
   return (
@@ -181,8 +186,14 @@ function App() {
   // DAY 18 - Live Mode: sync worker status from the real FastAPI backend
   // instead of the local simulation.
   const [liveMode, setLiveMode] = useState(false);
-  const [connectionStatus, setConnectionStatus] = useState("idle"); // idle | connecting | connected | disconnected | error
+  const [connectionStatus, setConnectionStatus] = useState("idle"); // idle | connecting | connected | reconnecting | disconnected | error
   const wsRef = useRef(null);
+
+  // DAY 19 - reconnect bookkeeping
+  const [reconnectAttempt, setReconnectAttempt] = useState(0);
+  const [retryNonce, setRetryNonce] = useState(0);
+  const reconnectAttemptsRef = useRef(0);
+  const reconnectTimeoutRef = useRef(null);
 
   // Ticks once a second so the "in progress" timeline segment keeps growing live.
   const [now, setNow] = useState(Date.now());
@@ -413,7 +424,7 @@ function App() {
   const toggleAutoStream = () => setAutoStream((current) => !current);
 
   // ===============================
-  // DAY 18 - LIVE MODE: connect to the real backend
+  // DAY 18/19 - LIVE MODE: connect to the real backend, with auto-reconnect
   // ===============================
 
   useEffect(() => {
@@ -422,12 +433,19 @@ function App() {
         wsRef.current.close();
         wsRef.current = null;
       }
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
+      }
+      reconnectAttemptsRef.current = 0;
+      setReconnectAttempt(0);
       setConnectionStatus("idle");
       return;
     }
 
     let cancelled = false;
-    setConnectionStatus("connecting");
+    reconnectAttemptsRef.current = 0;
+    setReconnectAttempt(0);
 
     // Pull real status from the backend on entry, but keep our simulated
     // load/lag fields so the dashboard doesn't flatten to zero — the
@@ -447,65 +465,109 @@ function App() {
         if (!cancelled) setConnectionStatus("error");
       });
 
-    const ws = new WebSocket(WS_URL);
-    wsRef.current = ws;
-
-    ws.onopen = () => {
-      if (!cancelled) setConnectionStatus("connected");
+    const logEvent = (type, text) => {
+      setActivity((previousActivity) =>
+        [
+          { id: Date.now() + Math.random(), type, text, time: new Date().toLocaleTimeString() },
+          ...previousActivity,
+        ].slice(0, 40)
+      );
     };
 
-    ws.onmessage = (messageEvent) => {
-      let data;
-      try {
-        data = JSON.parse(messageEvent.data);
-      } catch {
-        return;
-      }
+    const connect = () => {
+      if (cancelled) return;
+      setConnectionStatus(reconnectAttemptsRef.current === 0 ? "connecting" : "reconnecting");
 
-      if (data.type === "worker_status") {
-        setWorkers((previousWorkers) =>
-          previousWorkers.map((w) =>
-            w.id !== data.workerId
-              ? w
-              : {
-                  ...w,
-                  status: data.status,
-                  load: data.status === "Stopped" ? 0 : w.load || Math.floor(Math.random() * 50) + 30,
-                  lag: data.status === "Stopped" ? 0 : w.lag,
-                }
-          )
-        );
+      const ws = new WebSocket(WS_URL);
+      wsRef.current = ws;
 
-        setActivity((previousActivity) =>
-          [
-            {
-              id: Date.now() + Math.random(),
-              type: data.status === "Stopped" ? "stopped" : "recovered",
-              text: `[backend] Worker ${data.workerId} is now ${data.status}`,
-              time: new Date().toLocaleTimeString(),
-            },
-            ...previousActivity,
-          ].slice(0, 40)
-        );
-      }
+      ws.onopen = () => {
+        if (cancelled) return;
+        if (reconnectAttemptsRef.current > 0) {
+          logEvent("recovered", "[backend] Reconnected to backend WebSocket");
+        }
+        reconnectAttemptsRef.current = 0;
+        setReconnectAttempt(0);
+        setConnectionStatus("connected");
+      };
+
+      ws.onmessage = (messageEvent) => {
+        let data;
+        try {
+          data = JSON.parse(messageEvent.data);
+        } catch {
+          return;
+        }
+
+        if (data.type === "worker_status") {
+          setWorkers((previousWorkers) =>
+            previousWorkers.map((w) =>
+              w.id !== data.workerId
+                ? w
+                : {
+                    ...w,
+                    status: data.status,
+                    load: data.status === "Stopped" ? 0 : w.load || Math.floor(Math.random() * 50) + 30,
+                    lag: data.status === "Stopped" ? 0 : w.lag,
+                  }
+            )
+          );
+          logEvent(
+            data.status === "Stopped" ? "stopped" : "recovered",
+            `[backend] Worker ${data.workerId} is now ${data.status}`
+          );
+        }
+      };
+
+      ws.onclose = () => {
+        wsRef.current = null;
+        if (cancelled) return;
+
+        if (reconnectAttemptsRef.current >= MAX_RECONNECT_ATTEMPTS) {
+          setConnectionStatus("error");
+          logEvent(
+            "stopped",
+            `[backend] Gave up reconnecting after ${MAX_RECONNECT_ATTEMPTS} attempts — falling back to Demo Mode`
+          );
+          setLiveMode(false);
+          return;
+        }
+
+        if (reconnectAttemptsRef.current === 0) {
+          logEvent("stopped", "[backend] Lost connection to backend — attempting to reconnect…");
+        }
+
+        const attempt = reconnectAttemptsRef.current + 1;
+        reconnectAttemptsRef.current = attempt;
+        setReconnectAttempt(attempt);
+        setConnectionStatus("reconnecting");
+
+        const delay = Math.min(RECONNECT_BASE_DELAY_MS * 2 ** (attempt - 1), RECONNECT_MAX_DELAY_MS);
+        reconnectTimeoutRef.current = setTimeout(connect, delay);
+      };
+
+      ws.onerror = () => {
+        // onclose fires right after this and handles retry scheduling.
+      };
     };
 
-    ws.onclose = () => {
-      if (!cancelled) setConnectionStatus("disconnected");
-    };
-
-    ws.onerror = () => {
-      if (!cancelled) setConnectionStatus("error");
-    };
+    connect();
 
     return () => {
       cancelled = true;
-      ws.close();
-      wsRef.current = null;
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
+      }
+      if (wsRef.current) {
+        wsRef.current.close();
+        wsRef.current = null;
+      }
     };
-  }, [liveMode]);
+  }, [liveMode, retryNonce]);
 
   const toggleLiveMode = () => setLiveMode((v) => !v);
+  const retryConnectionNow = () => setRetryNonce((n) => n + 1);
 
   // ===============================
   // TOGGLE WORKER (+ event log)
@@ -805,9 +867,16 @@ function App() {
           <span className={`connection-badge ${connectionStatus}`}>
             {connectionStatus === "connecting" && "Connecting…"}
             {connectionStatus === "connected" && "● Connected to backend"}
+            {connectionStatus === "reconnecting" &&
+              `Reconnecting… (attempt ${reconnectAttempt}/${MAX_RECONNECT_ATTEMPTS})`}
             {connectionStatus === "disconnected" && "○ Disconnected"}
             {connectionStatus === "error" && "⚠ Backend unreachable — check FastAPI is running on :8000"}
           </span>
+        )}
+        {liveMode && (connectionStatus === "error" || connectionStatus === "disconnected") && (
+          <button className="retry-button" onClick={retryConnectionNow}>
+            Retry now
+          </button>
         )}
       </div>
 
