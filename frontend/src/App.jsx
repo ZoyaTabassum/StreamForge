@@ -120,9 +120,19 @@ const TIMELINE_WINDOW_MS = 120000;
 const LAG_HISTORY_LENGTH = 30; // samples kept per worker for the sparkline
 const BOTTLENECK_LAG_THRESHOLD = 600; // ms — above this, a worker is "the bottleneck"
 
-// DAY 18 - real backend endpoints (FastAPI main.py)
-const API_BASE = "http://localhost:8000";
-const WS_URL = "ws://localhost:8000/ws/stream";
+// DAY 20 - default backend host, overridable from the Settings panel and
+// persisted to localStorage. No protocol prefix here — http(s)/ws(s) is
+// added by buildApiBase/buildWsUrl below.
+const DEFAULT_BACKEND_HOST = "localhost:8000";
+const BACKEND_HOST_STORAGE_KEY = "streamforge.backendHost";
+
+function buildApiBase(host) {
+  return `http://${host}`;
+}
+
+function buildWsUrl(host) {
+  return `ws://${host}/ws/stream`;
+}
 
 // DAY 19 - reconnect tuning
 const MAX_RECONNECT_ATTEMPTS = 5;
@@ -194,6 +204,19 @@ function App() {
   const [retryNonce, setRetryNonce] = useState(0);
   const reconnectAttemptsRef = useRef(0);
   const reconnectTimeoutRef = useRef(null);
+
+  // DAY 20 - configurable backend host (persisted), so this isn't hardcoded
+  // to localhost once the backend runs somewhere else.
+  const [backendHost, setBackendHost] = useState(() => {
+    try {
+      return localStorage.getItem(BACKEND_HOST_STORAGE_KEY) || DEFAULT_BACKEND_HOST;
+    } catch {
+      return DEFAULT_BACKEND_HOST;
+    }
+  });
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [hostDraft, setHostDraft] = useState(backendHost);
+  const [hostSaveNotice, setHostSaveNotice] = useState("");
 
   // Ticks once a second so the "in progress" timeline segment keeps growing live.
   const [now, setNow] = useState(Date.now());
@@ -447,10 +470,15 @@ function App() {
     reconnectAttemptsRef.current = 0;
     setReconnectAttempt(0);
 
+    // DAY 20 - resolve URLs from the configurable host at connect time,
+    // not from a hardcoded constant.
+    const apiBase = buildApiBase(backendHost);
+    const wsUrl = buildWsUrl(backendHost);
+
     // Pull real status from the backend on entry, but keep our simulated
     // load/lag fields so the dashboard doesn't flatten to zero — the
     // backend doesn't emit those yet (that's a later day).
-    fetch(`${API_BASE}/api/workers`)
+    fetch(`${apiBase}/api/workers`)
       .then((res) => res.json())
       .then((backendWorkers) => {
         if (cancelled) return;
@@ -478,7 +506,7 @@ function App() {
       if (cancelled) return;
       setConnectionStatus(reconnectAttemptsRef.current === 0 ? "connecting" : "reconnecting");
 
-      const ws = new WebSocket(WS_URL);
+      const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
 
       ws.onopen = () => {
@@ -564,9 +592,35 @@ function App() {
         wsRef.current = null;
       }
     };
-  }, [liveMode, retryNonce]);
+  }, [liveMode, retryNonce, backendHost]);
 
   const toggleLiveMode = () => setLiveMode((v) => !v);
+
+  // DAY 20 - save a new backend host from the Settings panel. Applies on
+  // the next connect (or immediately if already live, by forcing a retry).
+  const saveBackendHost = () => {
+    const trimmed = hostDraft.trim();
+    if (!trimmed) {
+      setHostSaveNotice("Host can't be empty.");
+      return;
+    }
+    setBackendHost(trimmed);
+    try {
+      localStorage.setItem(BACKEND_HOST_STORAGE_KEY, trimmed);
+    } catch {
+      // localStorage unavailable (private browsing, etc.) — non-fatal,
+      // the host still applies for this session.
+    }
+    setHostSaveNotice("Saved.");
+    setTimeout(() => setHostSaveNotice(""), 2000);
+    if (liveMode) {
+      setRetryNonce((n) => n + 1); // force immediate reconnect to new host
+    }
+  };
+
+  const resetBackendHost = () => {
+    setHostDraft(DEFAULT_BACKEND_HOST);
+  };
   const retryConnectionNow = () => setRetryNonce((n) => n + 1);
 
   // ===============================
@@ -706,7 +760,7 @@ function App() {
       // WebSocket broadcast that comes back just confirms what we already
       // set locally, so there's no double-toggle.
       if (liveMode) {
-        fetch(`${API_BASE}/api/workers/${workerId}/toggle`, { method: "POST" }).catch(() => {
+        fetch(`${buildApiBase(backendHost)}/api/workers/${workerId}/toggle`, { method: "POST" }).catch(() => {
           setActivity((previousActivity) =>
             [
               {
@@ -721,7 +775,7 @@ function App() {
         });
       }
     },
-    [setEdges, liveMode]
+    [setEdges, liveMode, backendHost]
   );
 
   // DAY 15 - Chaos Monkey: randomly flips a worker's state every 4-8s.
@@ -878,7 +932,51 @@ function App() {
             Retry now
           </button>
         )}
+
+        {/* DAY 20 - backend host settings */}
+        <button
+          className="settings-button"
+          onClick={() => {
+            setHostDraft(backendHost);
+            setHostSaveNotice("");
+            setSettingsOpen((open) => !open);
+          }}
+          title="Configure backend address"
+        >
+          ⚙ {backendHost}
+        </button>
       </div>
+
+      {settingsOpen && (
+        <div className="settings-panel">
+          <label htmlFor="backend-host-input">Backend host</label>
+          <div className="settings-row">
+            <span className="settings-prefix">http(s)://</span>
+            <input
+              id="backend-host-input"
+              type="text"
+              className="settings-input"
+              value={hostDraft}
+              onChange={(e) => setHostDraft(e.target.value)}
+              placeholder="localhost:8000"
+              spellCheck={false}
+            />
+          </div>
+          <p className="settings-hint">
+            Used for both the REST API and the WebSocket stream. Change this once your
+            friend's backend is running somewhere other than your own machine.
+          </p>
+          <div className="settings-actions">
+            <button className="settings-save" onClick={saveBackendHost}>
+              Save{liveMode ? " & Reconnect" : ""}
+            </button>
+            <button className="settings-reset" onClick={resetBackendHost}>
+              Reset to default
+            </button>
+            {hostSaveNotice && <span className="settings-notice">{hostSaveNotice}</span>}
+          </div>
+        </div>
+      )}
 
       {alerts.length > 0 && (
         <div className="alert-stack">
