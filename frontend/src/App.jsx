@@ -858,6 +858,63 @@ function App() {
   });
 
   // ===============================
+  // DAY 21 - EXPORTS (activity log + full snapshot)
+  // ===============================
+
+  const downloadBlob = (content, filename, mimeType) => {
+    const blob = new Blob([content], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  const csvEscape = (value) => {
+    const str = String(value ?? "");
+    return /[",\n]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
+  };
+
+  const exportActivityCsv = () => {
+    const rows = [
+      ["time", "type", "text"],
+      ...filteredActivity.map((item) => [item.time, item.type, item.text]),
+    ];
+    const csv = rows.map((row) => row.map(csvEscape).join(",")).join("\n");
+    downloadBlob(csv, `streamforge-activity-${Date.now()}.csv`, "text/csv");
+  };
+
+  const exportActivityJson = () => {
+    downloadBlob(
+      JSON.stringify(filteredActivity, null, 2),
+      `streamforge-activity-${Date.now()}.json`,
+      "application/json"
+    );
+  };
+
+  const exportSystemSnapshot = () => {
+    const snapshot = {
+      exportedAt: new Date().toISOString(),
+      mode: liveMode ? "live" : "demo",
+      connectionStatus: liveMode ? connectionStatus : null,
+      messageCount,
+      workers,
+      lagSamples,
+      activeBottleneck: activeBottleneck ? { id: activeBottleneck.id, name: activeBottleneck.name, lag: activeBottleneck.lag } : null,
+      workerHistory,
+      activityLog: activity,
+    };
+    downloadBlob(
+      JSON.stringify(snapshot, null, 2),
+      `streamforge-snapshot-${Date.now()}.json`,
+      "application/json"
+    );
+  };
+
+  // ===============================
   // DAY 12 - TIMELINE GEOMETRY
   // ===============================
 
@@ -1141,6 +1198,26 @@ function App() {
         >
           Bottlenecks
         </button>
+
+        {/* DAY 21 - export the currently filtered log */}
+        <span className="export-group">
+          <button
+            className="export-button"
+            onClick={exportActivityCsv}
+            disabled={filteredActivity.length === 0}
+            title="Export the filtered activity log as CSV"
+          >
+            ⬇ CSV
+          </button>
+          <button
+            className="export-button"
+            onClick={exportActivityJson}
+            disabled={filteredActivity.length === 0}
+            title="Export the filtered activity log as JSON"
+          >
+            ⬇ JSON
+          </button>
+        </span>
       </div>
 
       <div className="activity-list">
@@ -1156,6 +1233,11 @@ function App() {
           ))
         )}
       </div>
+
+      {/* DAY 21 - full state snapshot, handy right after a chaos test run */}
+      <button className="snapshot-button" onClick={exportSystemSnapshot}>
+        📋 Export Full System Snapshot (JSON)
+      </button>
     </div>
   );
 }
