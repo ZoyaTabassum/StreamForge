@@ -1,8 +1,7 @@
-
-
 confluent-kafka
 fastapi
 uvicorn[standard]
 pydantic
 python-dotenv
 bytewax
+pytest
