@@ -139,6 +139,16 @@ const MAX_RECONNECT_ATTEMPTS = 5;
 const RECONNECT_BASE_DELAY_MS = 1000;
 const RECONNECT_MAX_DELAY_MS = 16000;
 
+// DAY 22 - small badge showing whether a field is confirmed from the
+// real backend or still locally simulated. Only rendered in Live Mode.
+function FieldTag({ isLive }) {
+  return isLive ? (
+    <span className="field-tag live" title="Confirmed by the backend">LIVE</span>
+  ) : (
+    <span className="field-tag sim" title="Still simulated locally — backend doesn't report this yet">SIM</span>
+  );
+}
+
 function NodeLabel({ worker, isBottleneck }) {
   const isRunning = worker.status === "Running";
   return (
@@ -196,6 +206,19 @@ function App() {
   // DAY 18 - Live Mode: sync worker status from the real FastAPI backend
   // instead of the local simulation.
   const [liveMode, setLiveMode] = useState(false);
+
+  // DAY 22 - tracks which fields per worker have actually been confirmed
+  // by a real backend message, vs. still being locally simulated. Lets
+  // the UI be honest about what's real instead of implying everything
+  // is live just because Live Mode is on.
+  const [liveFields, setLiveFields] = useState({});
+
+  const markFieldsLive = (workerId, fields) => {
+    setLiveFields((prev) => ({
+      ...prev,
+      [workerId]: { ...(prev[workerId] || {}), ...Object.fromEntries(fields.map((f) => [f, true])) },
+    }));
+  };
   const [connectionStatus, setConnectionStatus] = useState("idle"); // idle | connecting | connected | reconnecting | disconnected | error
   const wsRef = useRef(null);
 
@@ -463,6 +486,7 @@ function App() {
       reconnectAttemptsRef.current = 0;
       setReconnectAttempt(0);
       setConnectionStatus("idle");
+      setLiveFields({}); // DAY 22 - back to demo, nothing is confirmed-live anymore
       return;
     }
 
@@ -540,9 +564,37 @@ function App() {
                   }
             )
           );
+          markFieldsLive(data.workerId, ["status"]);
           logEvent(
             data.status === "Stopped" ? "stopped" : "recovered",
             `[backend] Worker ${data.workerId} is now ${data.status}`
+          );
+        }
+
+        // DAY 22 - forward-compatible: the Day 8 backend plan will
+        // eventually push real load/lag/message-count readings from the
+        // actual Kafka/Bytewax pipeline. This handler is ready for that
+        // now, so no further frontend changes are needed when it ships.
+        if (data.type === "worker_metrics") {
+          setWorkers((previousWorkers) =>
+            previousWorkers.map((w) =>
+              w.id !== data.workerId
+                ? w
+                : {
+                    ...w,
+                    load: data.load ?? w.load,
+                    lag: data.lag ?? w.lag,
+                    messages: data.messages ?? w.messages,
+                  }
+            )
+          );
+          markFieldsLive(
+            data.workerId,
+            [
+              data.load !== undefined ? "load" : null,
+              data.lag !== undefined ? "lag" : null,
+              data.messages !== undefined ? "messages" : null,
+            ].filter(Boolean)
           );
         }
       };
@@ -1004,6 +1056,14 @@ function App() {
         </button>
       </div>
 
+      {/* DAY 22 - explain the LIVE/SIM tags before they show up on cards */}
+      {liveMode && (
+        <div className="field-legend">
+          <span className="field-tag live">LIVE</span> confirmed by the backend right now ·{" "}
+          <span className="field-tag sim">SIM</span> still simulated locally (backend doesn't report this yet — see Day 8 plan)
+        </div>
+      )}
+
       {settingsOpen && (
         <div className="settings-panel">
           <label htmlFor="backend-host-input">Backend host</label>
@@ -1093,21 +1153,29 @@ function App() {
                 <span className={worker.status === "Running" ? "monitor-status running" : "monitor-status stopped"}>
                   {worker.status === "Running" ? "🟢 Running" : "🔴 Stopped"}
                 </span>
+                {liveMode && <FieldTag isLive={!!liveFields[worker.id]?.status} />}
               </div>
 
               <div className="monitor-info">
-                <p><strong>Load:</strong> {worker.load}%</p>
+                <p>
+                  <strong>Load:</strong> {worker.load}%
+                  {liveMode && <FieldTag isLive={!!liveFields[worker.id]?.load} />}
+                </p>
                 <div className="load-bar">
                   <div
                     className={`load-fill ${loadClass(worker.load)}`}
                     style={{ width: `${worker.load}%` }}
                   />
                 </div>
-                <p><strong>Messages:</strong> {worker.messages}</p>
+                <p>
+                  <strong>Messages:</strong> {worker.messages}
+                  {liveMode && <FieldTag isLive={!!liveFields[worker.id]?.messages} />}
+                </p>
 
                 {/* DAY 16 - consumer lag readout + sparkline */}
                 <p>
                   <strong>Lag:</strong> {worker.lag}ms
+                  {liveMode && <FieldTag isLive={!!liveFields[worker.id]?.lag} />}
                   {isBottleneck && <span className="bottleneck-badge">BOTTLENECK</span>}
                 </p>
                 <div className="lag-sparkline">
