@@ -120,6 +120,16 @@ const TIMELINE_WINDOW_MS = 120000;
 const LAG_HISTORY_LENGTH = 30; // samples kept per worker for the sparkline
 const BOTTLENECK_LAG_THRESHOLD = 600; // ms — above this, a worker is "the bottleneck"
 
+// DAY 23 - Truck Fleet: mirrors the backend's stream_processor.py output
+// (truck_id / average_temperature / message_count). Demo Mode simulates
+// these locally; Live Mode expects a `truck_update` WebSocket event once
+// the backend bridges processed-telemetry into main.py.
+const DEMO_TRUCK_IDS = ["TRUCK-001", "TRUCK-002", "TRUCK-003", "TRUCK-004", "TRUCK-005", "TRUCK-006"];
+// Mirrors the MIN/MAX_PLAUSIBLE_TEMP_C defaults in the backend's .env —
+// keep these in sync if that config changes.
+const TRUCK_TEMP_MIN = -40;
+const TRUCK_TEMP_MAX = 80;
+
 // DAY 20 - default backend host, overridable from the Settings panel and
 // persisted to localStorage. No protocol prefix here — http(s)/ws(s) is
 // added by buildApiBase/buildWsUrl below.
@@ -219,6 +229,17 @@ function App() {
       [workerId]: { ...(prev[workerId] || {}), ...Object.fromEntries(fields.map((f) => [f, true])) },
     }));
   };
+
+  // DAY 23 - Truck Fleet state: mirrors backend's per-truck rolling averages
+  const [trucks, setTrucks] = useState(() =>
+    DEMO_TRUCK_IDS.map((id) => ({
+      truckId: id,
+      averageTemperature: Math.round((20 + Math.random() * 25) * 100) / 100,
+      messageCount: 0,
+      updatedAt: Date.now(),
+    }))
+  );
+  const [truckLiveIds, setTruckLiveIds] = useState({});
   const [connectionStatus, setConnectionStatus] = useState("idle"); // idle | connecting | connected | reconnecting | disconnected | error
   const wsRef = useRef(null);
 
@@ -467,6 +488,37 @@ function App() {
     return () => clearInterval(recoveryInterval);
   }, []);
 
+  // ===============================
+  // DAY 23 - TRUCK FLEET DEMO SIMULATION
+  // (only runs in Demo Mode — Live Mode relies on real truck_update events)
+  // ===============================
+
+  useEffect(() => {
+    if (liveMode) return;
+    const truckInterval = setInterval(() => {
+      setTrucks((previousTrucks) =>
+        previousTrucks.map((truck) => {
+          // Rare demo anomaly, illustrating the same sanity-range check
+          // stream_processor.py applies on Day 4 (is_plausible_temperature).
+          const isAnomaly = Math.random() < 0.04;
+          const nextTemp = isAnomaly
+            ? Math.random() < 0.5
+              ? TRUCK_TEMP_MIN - Math.random() * 10
+              : TRUCK_TEMP_MAX + Math.random() * 10
+            : Math.max(15, Math.min(50, truck.averageTemperature + (Math.random() - 0.5) * 4));
+
+          return {
+            ...truck,
+            averageTemperature: Math.round(nextTemp * 100) / 100,
+            messageCount: truck.messageCount + Math.floor(Math.random() * 4),
+            updatedAt: Date.now(),
+          };
+        })
+      );
+    }, 3000);
+    return () => clearInterval(truckInterval);
+  }, [liveMode]);
+
   const toggleAutoStream = () => setAutoStream((current) => !current);
 
   // ===============================
@@ -487,6 +539,7 @@ function App() {
       setReconnectAttempt(0);
       setConnectionStatus("idle");
       setLiveFields({}); // DAY 22 - back to demo, nothing is confirmed-live anymore
+      setTruckLiveIds({}); // DAY 23 - same, for truck data
       return;
     }
 
@@ -596,6 +649,27 @@ function App() {
               data.messages !== undefined ? "messages" : null,
             ].filter(Boolean)
           );
+        }
+
+        // DAY 23 - Truck Fleet: expects { type: "truck_update", truckId,
+        // averageTemperature, messageCount, windowId } once the backend
+        // bridges stream_processor.py's processed-telemetry output into
+        // this WebSocket. Upserts the truck (adds it if it's new).
+        if (data.type === "truck_update" && data.truckId) {
+          setTrucks((previousTrucks) => {
+            const exists = previousTrucks.some((t) => t.truckId === data.truckId);
+            const updated = {
+              truckId: data.truckId,
+              averageTemperature: data.averageTemperature,
+              messageCount: data.messageCount ?? 0,
+              windowId: data.windowId,
+              updatedAt: Date.now(),
+            };
+            return exists
+              ? previousTrucks.map((t) => (t.truckId === data.truckId ? { ...t, ...updated } : t))
+              : [...previousTrucks, updated];
+          });
+          setTruckLiveIds((prev) => ({ ...prev, [data.truckId]: true }));
         }
       };
 
@@ -957,6 +1031,7 @@ function App() {
       lagSamples,
       activeBottleneck: activeBottleneck ? { id: activeBottleneck.id, name: activeBottleneck.name, lag: activeBottleneck.lag } : null,
       workerHistory,
+      trucks,
       activityLog: activity,
     };
     downloadBlob(
@@ -1199,6 +1274,33 @@ function App() {
             </div>
           );
         })}
+      </div>
+
+      {/* DAY 23 - Truck Fleet: the data-layer view, separate from the
+          infrastructure-layer Worker Monitoring above */}
+      <h2 className="section-title">Truck Fleet — Live Temperature Averages</h2>
+      <div className="truck-fleet">
+        {trucks
+          .slice()
+          .sort((a, b) => a.truckId.localeCompare(b.truckId))
+          .map((truck) => {
+            const isAnomaly =
+              truck.averageTemperature < TRUCK_TEMP_MIN || truck.averageTemperature > TRUCK_TEMP_MAX;
+            const isLive = liveMode && !!truckLiveIds[truck.truckId];
+            return (
+              <div className={`truck-card ${isAnomaly ? "anomaly" : ""}`} key={truck.truckId}>
+                <div className="truck-header">
+                  <span className="truck-id">{truck.truckId}</span>
+                  {liveMode && <FieldTag isLive={isLive} />}
+                </div>
+                <p className="truck-temp">
+                  {truck.averageTemperature}°C
+                  {isAnomaly && <span className="anomaly-badge">OUT OF RANGE</span>}
+                </p>
+                <p className="truck-meta">{truck.messageCount} readings this window</p>
+              </div>
+            );
+          })}
       </div>
 
       <h2 className="section-title">Partition Rebalance Timeline</h2>
