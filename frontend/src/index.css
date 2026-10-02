@@ -368,6 +368,38 @@ body::after {
   color: #6b6693;
 }
 
+/* ---------- Day 24: truck temperature sparkline ---------- */
+
+.truck-sparkline {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 28px;
+  margin-top: 10px;
+  padding: 3px 5px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
+}
+
+.truck-sparkline-empty {
+  font-size: 10px;
+  color: #6b6693;
+  align-self: center;
+}
+
+.truck-temp-bar {
+  flex: 1;
+  min-width: 2px;
+  border-radius: 2px 2px 0 0;
+  background: linear-gradient(180deg, #22d3ee, #0ea5b7);
+  transition: height 0.4s ease;
+}
+
+.truck-temp-bar.critical {
+  background: linear-gradient(180deg, #fb7185, #f43f5e);
+}
+
 /* ---------- Day 22: live-vs-simulated field tags ---------- */
 
 .field-tag {

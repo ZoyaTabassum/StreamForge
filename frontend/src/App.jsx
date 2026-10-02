@@ -129,6 +129,8 @@ const DEMO_TRUCK_IDS = ["TRUCK-001", "TRUCK-002", "TRUCK-003", "TRUCK-004", "TRU
 // keep these in sync if that config changes.
 const TRUCK_TEMP_MIN = -40;
 const TRUCK_TEMP_MAX = 80;
+// DAY 24 - how many recent temp readings to keep per truck for the sparkline
+const TRUCK_TEMP_HISTORY_LENGTH = 20;
 
 // DAY 20 - default backend host, overridable from the Settings panel and
 // persisted to localStorage. No protocol prefix here — http(s)/ws(s) is
@@ -240,6 +242,21 @@ function App() {
     }))
   );
   const [truckLiveIds, setTruckLiveIds] = useState({});
+
+  // DAY 24 - rolling temperature history per truck, for the sparkline
+  const [truckTempHistory, setTruckTempHistory] = useState(() =>
+    Object.fromEntries(DEMO_TRUCK_IDS.map((id) => [id, []]))
+  );
+
+  const recordTruckTemp = (truckId, temp) => {
+    setTruckTempHistory((prev) => {
+      const arr = prev[truckId] ? [...prev[truckId]] : [];
+      arr.push(temp);
+      if (arr.length > TRUCK_TEMP_HISTORY_LENGTH) arr.shift();
+      return { ...prev, [truckId]: arr };
+    });
+  };
+
   const [connectionStatus, setConnectionStatus] = useState("idle"); // idle | connecting | connected | reconnecting | disconnected | error
   const wsRef = useRef(null);
 
@@ -507,9 +524,12 @@ function App() {
               : TRUCK_TEMP_MAX + Math.random() * 10
             : Math.max(15, Math.min(50, truck.averageTemperature + (Math.random() - 0.5) * 4));
 
+          const rounded = Math.round(nextTemp * 100) / 100;
+          recordTruckTemp(truck.truckId, rounded); // DAY 24
+
           return {
             ...truck,
-            averageTemperature: Math.round(nextTemp * 100) / 100,
+            averageTemperature: rounded,
             messageCount: truck.messageCount + Math.floor(Math.random() * 4),
             updatedAt: Date.now(),
           };
@@ -670,6 +690,9 @@ function App() {
               : [...previousTrucks, updated];
           });
           setTruckLiveIds((prev) => ({ ...prev, [data.truckId]: true }));
+          if (typeof data.averageTemperature === "number") {
+            recordTruckTemp(data.truckId, data.averageTemperature); // DAY 24
+          }
         }
       };
 
@@ -966,6 +989,15 @@ function App() {
         id: `hot-${w.id}`,
         level: "warning",
         text: `${w.name} approaching capacity (${w.load}% load)`,
+      })),
+    // DAY 24 - surface anomalous trucks at the top level too, not just as
+    // a card border buried in the Truck Fleet panel.
+    ...trucks
+      .filter((t) => t.averageTemperature < TRUCK_TEMP_MIN || t.averageTemperature > TRUCK_TEMP_MAX)
+      .map((t) => ({
+        id: `truck-anomaly-${t.truckId}`,
+        level: "warning",
+        text: `${t.truckId} reporting ${t.averageTemperature}°C — outside the plausible sensor range`,
       })),
   ];
 
@@ -1298,6 +1330,28 @@ function App() {
                   {isAnomaly && <span className="anomaly-badge">OUT OF RANGE</span>}
                 </p>
                 <p className="truck-meta">{truck.messageCount} readings this window</p>
+
+                {/* DAY 24 - recent temperature trend */}
+                <div className="truck-sparkline">
+                  {(truckTempHistory[truck.truckId] || []).length === 0 ? (
+                    <span className="truck-sparkline-empty">no history yet</span>
+                  ) : (
+                    (truckTempHistory[truck.truckId] || []).map((temp, i) => {
+                      const outOfRange = temp < TRUCK_TEMP_MIN || temp > TRUCK_TEMP_MAX;
+                      // Normalize against a fixed comfortable range so bar
+                      // heights stay meaningful even with occasional spikes.
+                      const pct = ((temp - TRUCK_TEMP_MIN) / (TRUCK_TEMP_MAX - TRUCK_TEMP_MIN)) * 100;
+                      return (
+                        <div
+                          key={i}
+                          className={`truck-temp-bar ${outOfRange ? "critical" : ""}`}
+                          style={{ height: `${Math.max(4, Math.min(100, pct))}%` }}
+                          title={`${temp}°C`}
+                        />
+                      );
+                    })
+                  )}
+                </div>
               </div>
             );
           })}
