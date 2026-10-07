@@ -41,3 +41,8 @@ data/*.csv
 
 # Kafka / local generated data
 *.tmp
+# StreamForge local backend files
+backend/venv311/**
+backend/data/**
+backend/__pycache__/**
+backend/.pytest_cache/**

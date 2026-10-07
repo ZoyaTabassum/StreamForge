@@ -485,6 +485,84 @@ body::after {
   border-color: rgba(124, 58, 237, 0.6);
 }
 
+/* ---------- Final day: project info panel ---------- */
+
+.info-button {
+  padding: 8px 16px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.03);
+  color: #9d97c9;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 0.2s ease, color 0.2s ease;
+}
+
+.info-button:hover {
+  border-color: rgba(34, 211, 238, 0.4);
+  color: #eceafc;
+}
+
+.info-panel {
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(18px);
+  border-radius: 20px;
+  padding: 22px 26px;
+  margin-bottom: 28px;
+}
+
+.info-panel h3 {
+  margin: 0 0 6px;
+  font-size: 18px;
+  font-weight: 800;
+  background: linear-gradient(120deg, #ffffff, #b7b0f7);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.info-sub {
+  margin: 0 0 18px;
+  font-size: 13px;
+  color: #9d97c9;
+  line-height: 1.5;
+}
+
+.info-columns {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 20px;
+  margin-bottom: 16px;
+}
+
+.info-columns h4 {
+  margin: 0 0 8px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #67e8f9;
+  font-weight: 700;
+}
+
+.info-columns ul {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12.5px;
+  color: #c3bfe0;
+  line-height: 1.7;
+}
+
+.info-hint {
+  font-size: 12px;
+  color: #6b6693;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+  padding-top: 14px;
+  margin: 0;
+  line-height: 1.6;
+}
+
 /* ---------- Day 20: backend settings panel ---------- */
 
 .settings-button {

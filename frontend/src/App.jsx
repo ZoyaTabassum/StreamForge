@@ -276,6 +276,9 @@ function App() {
     }
   });
   const [settingsOpen, setSettingsOpen] = useState(false);
+
+  // FINAL DAY - in-app project overview for reviewers/graders
+  const [infoOpen, setInfoOpen] = useState(false);
   const [hostDraft, setHostDraft] = useState(backendHost);
   const [hostSaveNotice, setHostSaveNotice] = useState("");
 
@@ -1161,7 +1164,60 @@ function App() {
         >
           ⚙ {backendHost}
         </button>
+
+        {/* FINAL DAY - project overview for reviewers */}
+        <button className="info-button" onClick={() => setInfoOpen((open) => !open)}>
+          ℹ About This Project
+        </button>
       </div>
+
+      {infoOpen && (
+        <div className="info-panel">
+          <h3>StreamForge — Distributed Python Event Processor</h3>
+          <p className="info-sub">
+            Kafka + Bytewax stream processing with a live React Flow dashboard for topology,
+            worker health, and chaos recovery.
+          </p>
+
+          <div className="info-columns">
+            <div>
+              <h4>Tech stack</h4>
+              <ul>
+                <li>Kafka (Docker, KRaft mode)</li>
+                <li>Bytewax — windowed stream processing</li>
+                <li>FastAPI + WebSocket backend</li>
+                <li>React + React Flow dashboard</li>
+              </ul>
+            </div>
+            <div>
+              <h4>Implemented</h4>
+              <ul>
+                <li>5-min tumbling windows, late-data handling</li>
+                <li>Live Kafka topology graph + partition migration</li>
+                <li>Chaos Monkey resilience testing</li>
+                <li>Real backend integration (Live Mode) w/ auto-reconnect</li>
+                <li>Per-truck temperature tracking + anomaly detection</li>
+                <li>Activity log + system snapshot export</li>
+              </ul>
+            </div>
+            <div>
+              <h4>Known gaps</h4>
+              <ul>
+                <li>RocksDB state store — not yet built</li>
+                <li>Prometheus metrics export — not yet built</li>
+                <li>Worker load/lag still simulated (see LIVE/SIM tags)</li>
+              </ul>
+            </div>
+          </div>
+
+          <p className="info-hint">
+            Toggle <strong>Live Mode</strong> above to connect to the real FastAPI backend.
+            Fields tagged <span className="field-tag live">LIVE</span> are confirmed from the
+            backend right now; <span className="field-tag sim">SIM</span> fields are still
+            locally simulated pending further backend work.
+          </p>
+        </div>
+      )}
 
       {/* DAY 22 - explain the LIVE/SIM tags before they show up on cards */}
       {liveMode && (

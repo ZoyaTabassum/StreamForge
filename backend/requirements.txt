@@ -5,3 +5,5 @@ pydantic
 python-dotenv
 bytewax
 pytest
+rocksdict==0.3.29
+prometheus-client
